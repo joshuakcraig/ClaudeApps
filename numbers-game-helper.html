@@ -270,6 +270,16 @@
   ];
   const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 
+  // Set this once you've deployed the Cloudflare Worker proxy (see espn-cors-proxy-worker.js).
+  // Example: 'https://numbers-game-proxy.yourname.workers.dev'
+  // Leave as '' to call ESPN directly (will fail with a CORS error in real browsers).
+  const PROXY_URL = 'https://numbers-game-proxy.jkcraig.workers.dev/';
+
+  function apiUrl(target){
+    if (!PROXY_URL) return target;
+    return PROXY_URL + '/?url=' + encodeURIComponent(target);
+  }
+
   let allTeams = [];      // {id, sport, league, label, name, color, altColor}
   let roster = [];        // {id, name, jersey, note}
   let foundIds = new Set();
@@ -364,7 +374,7 @@
     for (const lg of LEAGUES){
       try{
         const url = `${ESPN_BASE}/${lg.sport}/${lg.league}/teams?limit=100`;
-        const res = await fetch(url);
+        const res = await fetch(apiUrl(url));
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const teams = (data.sports?.[0]?.leagues?.[0]?.teams) || [];
@@ -442,7 +452,7 @@
 
     try{
       const url = `${ESPN_BASE}/${team.sport}/${team.league}/teams/${team.id}?enable=roster`;
-      const res = await fetch(url);
+      const res = await fetch(apiUrl(url));
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const groups = data.team?.athletes || [];
