@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Numbers Game Helper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --team-primary:#c8102e;
+    --team-secondary:#000000;
+    --bg:#0b0c0f;
+    --panel:#15171c;
+    --panel-2:#1b1e25;
+    --line:#2a2e37;
+    --text:#eef0f3;
+    --text-dim:#9aa0ab;
+    --amber:#ffb400;
+    --green:#3ddc84;
+    --red:#ff4d4d;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:'JetBrains Mono',monospace; min-height:100%;}
+  body{padding-bottom:40px;}
+  h1,h2,h3,.display{font-family:'Oswald',sans-serif;}
+
+  .topbar{
+    padding:16px 18px 14px;
+    background:linear-gradient(180deg, var(--team-secondary) 0%, var(--bg) 130%);
+    border-bottom:3px solid var(--team-primary);
+    position:sticky; top:0; z-index:20;
+    transition:background .5s ease, border-color .5s ease;
+  }
+  .topbar-row{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+  .topbar h1{
+    font-size:19px; letter-spacing:.06em; text-transform:uppercase;
+    margin:0; font-weight:700; color:var(--text);
+  }
+  .topbar h1 span{color:var(--team-primary); transition:color .5s ease;}
+  .topbar .sub{font-size:11px; color:var(--text-dim); margin-top:2px;}
+
+  main{max-width:640px; margin:0 auto; padding:16px;}
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius); padding:16px; margin-bottom:14px;
+  }
+  .panel h2{
+    font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--text-dim); margin:0 0 12px; font-weight:600;
+  }
+
+  button{
+    font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.03em;
+    border:none; border-radius:10px; cursor:pointer;
+    transition:transform .08s ease, filter .15s ease;
+  }
+  button:active{transform:scale(.97);}
+  .btn-primary{
+    background:var(--team-primary); color:#fff;
+    padding:14px 18px; font-size:15px; width:100%;
+    text-transform:uppercase;
+  }
+  .btn-primary:disabled{background:#3a3d45; color:#787c85; cursor:not-allowed;}
+  .btn-secondary{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    padding:12px 16px; font-size:13px;
+  }
+  .btn-row{display:flex; gap:10px;}
+  .btn-row button{flex:1;}
+
+  input[type="text"]{
+    width:100%; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:13px 14px;
+    font-family:'JetBrains Mono',monospace; font-size:15px;
+  }
+  input[type="text"]:focus{outline:none; border-color:var(--team-primary);}
+  textarea{
+    width:100%; min-height:110px; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:12px; font-family:'JetBrains Mono',monospace;
+    font-size:13px; resize:vertical;
+  }
+
+  .team-list{max-height:280px; overflow-y:auto; margin-top:10px;}
+  .team-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:11px 12px; border-radius:10px; cursor:pointer;
+    border:1px solid transparent;
+  }
+  .team-row:hover, .team-row:active{background:var(--panel-2); border-color:var(--line);}
+  .team-row .name{font-size:14px;}
+  .team-row .lg{
+    font-size:10px; color:var(--text-dim); border:1px solid var(--line);
+    padding:2px 7px; border-radius:6px; letter-spacing:.05em;
+  }
+  .team-swatch{width:10px; height:10px; border-radius:3px; margin-right:9px; flex-shrink:0;}
+  .team-row-left{display:flex; align-items:center; overflow:hidden;}
+
+  .status-line{font-size:12px; color:var(--text-dim); margin-top:8px; line-height:1.5;}
+  .status-line.error{color:var(--red);}
+  .status-line.good{color:var(--green);}
+
+  .roster-badge{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; margin-top:10px;
+  }
+  .roster-badge .rb-name{font-size:15px; font-weight:600; font-family:'Oswald',sans-serif;}
+  .roster-badge .rb-count{font-size:11px; color:var(--text-dim);}
+  .roster-badge .rb-clear{font-size:11px; color:var(--text-dim); text-decoration:underline; cursor:pointer; background:none;}
+
+  /* Big scoreboard display */
+  .scoreboard{
+    background:#000; border-radius:var(--radius); border:1px solid var(--line);
+    padding:26px 18px; text-align:center; position:relative; overflow:hidden;
+  }
+  .scoreboard::before{
+    content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px);
+    pointer-events:none;
+  }
+  .sb-label{font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px;}
+  .sb-number{
+    font-family:'Oswald',sans-serif; font-weight:700; font-size:96px; line-height:1;
+    color:var(--amber); text-shadow:0 0 22px rgba(255,180,0,.45);
+    letter-spacing:.02em; min-height:100px;
+  }
+  .sb-name{font-size:19px; margin-top:6px; color:var(--text); font-family:'Oswald',sans-serif; font-weight:500;}
+  .sb-empty{color:var(--text-dim); font-size:15px; padding:20px 0 6px;}
+
+  .mic-row{display:flex; align-items:center; gap:12px; margin-top:14px;}
+  .mic-btn{
+    flex:1; padding:16px; font-size:16px; text-transform:uppercase;
+    background:var(--green); color:#04150b;
+  }
+  .mic-btn.listening{
+    background:var(--red); color:#fff;
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(255,77,77,.5);}
+    50%{box-shadow:0 0 0 10px rgba(255,77,77,0);}
+  }
+
+  .timer-row{display:flex; align-items:center; gap:10px; margin-top:12px;}
+  .timer-display{
+    font-family:'Oswald',sans-serif; font-weight:700; font-size:28px;
+    background:var(--panel-2); border-radius:10px; padding:8px 16px; min-width:88px; text-align:center;
+  }
+  .timer-display.low{color:var(--red);}
+
+  .found-grid{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;}
+  .found-chip{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:7px 10px; font-size:12px; display:flex; gap:6px; align-items:center;
+  }
+  .found-chip b{color:var(--amber); font-family:'Oswald',sans-serif;}
+
+  .transcript-box{
+    background:#000; border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:12px; color:#5f6672; margin-top:10px;
+    min-height:20px; max-height:60px; overflow-y:auto; word-break:break-word;
+  }
+
+  .search-results{max-height:220px; overflow-y:auto; margin-top:8px;}
+  .search-result{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 12px; border-radius:8px; cursor:pointer;
+  }
+  .search-result:hover, .search-result:active{background:var(--panel-2);}
+  .search-result .num{color:var(--amber); font-weight:700; font-family:'Oswald',sans-serif; font-size:16px;}
+
+  details{margin-top:4px;}
+  summary{cursor:pointer; font-size:12px; color:var(--text-dim); padding:4px 0;}
+
+  .footnote{font-size:11px; color:var(--text-dim); line-height:1.6; margin-top:10px;}
+  .pill{
+    display:inline-block; font-size:10px; padding:2px 8px; border-radius:20px;
+    border:1px solid var(--line); color:var(--text-dim); margin-left:6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-row">
+    <h1>The Numbers <span>Game</span> Helper</h1>
+  </div>
+  <div class="sub" id="topSub">Load rosters, pick the category, listen.</div>
+</div>
+
+<main>
+
+  <!-- STEP 1: Load team data -->
+  <div class="panel" id="loadPanel">
+    <h2>Step 1 — Load Team Data</h2>
+    <button class="btn-primary" id="loadTeamsBtn">Load Rosters (NHL / NFL / NBA / MLB)</button>
+    <div class="status-line" id="loadStatus">Do this once, before the show starts. Needs internet.</div>
+  </div>
+
+  <!-- STEP 2: category / team select -->
+  <div class="panel" id="teamPanel" style="display:none;">
+    <h2>Step 2 — Category Announced? Pick The Team</h2>
+    <input type="text" id="teamSearch" placeholder="Type team name (e.g. Hurricanes)..." autocomplete="off">
+    <div class="team-list" id="teamList"></div>
+
+    <div class="roster-badge" id="rosterBadge" style="display:none;">
+      <div>
+        <div class="rb-name" id="rbName">—</div>
+        <div class="rb-count" id="rbCount">—</div>
+      </div>
+      <button class="rb-clear" id="rbClear">change</button>
+    </div>
+
+    <details>
+      <summary>Roster fetch not working? Paste one manually instead →</summary>
+      <div style="margin-top:8px;">
+        <input type="text" id="manualTeamName" placeholder="Team name for the header (optional)" autocomplete="off" style="margin-bottom:8px;">
+        <textarea id="manualRosterText" placeholder="One player per line:&#10;Jordan Staal, 11&#10;Sebastian Aho, 20&#10;Andrei Svechnikov, 37"></textarea>
+        <button class="btn-secondary" id="manualLoadBtn" style="margin-top:8px; width:100%;">Use This List</button>
+      </div>
+    </details>
+  </div>
+
+  <!-- STEP 3: game panel -->
+  <div class="panel" id="gamePanel" style="display:none;">
+    <h2>Step 3 — Round Is Live</h2>
+
+    <div class="scoreboard">
+      <div class="sb-label">Last Match</div>
+      <div class="sb-number" id="sbNumber">—</div>
+      <div class="sb-name" id="sbName">Waiting for a name...</div>
+    </div>
+
+    <div class="mic-row">
+      <button class="mic-btn" id="micBtn">Start Listening</button>
+    </div>
+    <div class="status-line" id="micStatus"></div>
+    <div class="transcript-box" id="transcriptBox">mic transcript will appear here…</div>
+
+    <div class="timer-row">
+      <div class="timer-display" id="timerDisplay">0:30</div>
+      <button class="btn-secondary" id="timerStartBtn">Start 30s</button>
+      <button class="btn-secondary" id="timerResetBtn">Reset</button>
+    </div>
+
+    <div class="found-grid" id="foundGrid"></div>
+
+    <h2 style="margin-top:18px;">Manual Backup Search</h2>
+    <input type="text" id="manualSearch" placeholder="Type any part of a name..." autocomplete="off">
+    <div class="search-results" id="manualResults"></div>
+  </div>
+
+  <div class="footnote" id="footnote"></div>
+
+</main>
+
+<script>
+(function(){
+
+  // ---------- Config ----------
+  const LEAGUES = [
+    {key:'nhl', sport:'hockey',     league:'nhl', label:'NHL'},
+    {key:'nfl', sport:'football',   league:'nfl', label:'NFL'},
+    {key:'nba', sport:'basketball', league:'nba', label:'NBA'},
+    {key:'mlb', sport:'baseball',   league:'mlb', label:'MLB'},
+  ];
+  const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
+
+  let allTeams = [];      // {id, sport, league, label, name, color, altColor}
+  let roster = [];        // {id, name, jersey, note}
+  let foundIds = new Set();
+  let lastMatchId = null;
+  let lastMatchTime = 0;
+  let recognizing = false;
+  let recognition = null;
+  let timerInterval = null;
+  let timerRemaining = 30;
+
+  // ---------- DOM refs ----------
+  const $ = (id)=>document.getElementById(id);
+  const loadTeamsBtn = $('loadTeamsBtn');
+  const loadStatus = $('loadStatus');
+  const teamPanel = $('teamPanel');
+  const teamSearch = $('teamSearch');
+  const teamList = $('teamList');
+  const rosterBadge = $('rosterBadge');
+  const rbName = $('rbName');
+  const rbCount = $('rbCount');
+  const rbClear = $('rbClear');
+  const gamePanel = $('gamePanel');
+  const sbNumber = $('sbNumber');
+  const sbName = $('sbName');
+  const micBtn = $('micBtn');
+  const micStatus = $('micStatus');
+  const transcriptBox = $('transcriptBox');
+  const timerDisplay = $('timerDisplay');
+  const timerStartBtn = $('timerStartBtn');
+  const timerResetBtn = $('timerResetBtn');
+  const foundGrid = $('foundGrid');
+  const manualSearch = $('manualSearch');
+  const manualResults = $('manualResults');
+  const manualTeamName = $('manualTeamName');
+  const manualRosterText = $('manualRosterText');
+  const manualLoadBtn = $('manualLoadBtn');
+  const topSub = $('topSub');
+  const footnote = $('footnote');
+
+  footnote.innerHTML = 'Jersey numbers reflect each player\'s <b>current</b> number from live team data — historical/previous numbers aren\'t included. Speech matching favors speed over certainty; use manual search if a name gets missed. On iPhone, use <b>Safari</b> for live listening — iOS Chrome does not support speech recognition (Apple restricts it in their WebKit engine), but iOS Safari does. This page must be served over http(s):// — opening it as a local file on iOS blocks JavaScript entirely.'
+
+  // ---------- Utilities ----------
+  function normalize(s){
+    return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();
+  }
+
+  function levenshtein(a, b){
+    if (a === b) return 0;
+    const al = a.length, bl = b.length;
+    if (al === 0) return bl;
+    if (bl === 0) return al;
+    let prev = new Array(bl+1);
+    for (let j=0;j<=bl;j++) prev[j]=j;
+    for (let i=1;i<=al;i++){
+      let cur = [i];
+      for (let j=1;j<=bl;j++){
+        const cost = a[i-1]===b[j-1] ? 0 : 1;
+        cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost);
+      }
+      prev = cur;
+    }
+    return prev[bl];
+  }
+
+  function similarity(a, b){
+    if (!a.length && !b.length) return 1;
+    const d = levenshtein(a,b);
+    return 1 - d / Math.max(a.length, b.length);
+  }
+
+  // best similarity of token `word` against any token in `tokens`
+  function bestTokenSim(word, tokens){
+    let best = 0;
+    for (const t of tokens){
+      const s = similarity(word, t);
+      if (s > best) best = s;
+    }
+    return best;
+  }
+
+  // ---------- Team loading ----------
+  loadTeamsBtn.addEventListener('click', loadAllTeams);
+
+  async function loadAllTeams(){
+    loadTeamsBtn.disabled = true;
+    loadStatus.textContent = 'Loading team lists…';
+    loadStatus.className = 'status-line';
+    allTeams = [];
+    let okCount = 0, failCount = 0;
+
+    for (const lg of LEAGUES){
+      try{
+        const url = `${ESPN_BASE}/${lg.sport}/${lg.league}/teams?limit=100`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const teams = (data.sports?.[0]?.leagues?.[0]?.teams) || [];
+        for (const t of teams){
+          const team = t.team;
+          allTeams.push({
+            id: team.id,
+            sport: lg.sport,
+            league: lg.league,
+            label: lg.label,
+            name: team.displayName,
+            shortName: team.shortDisplayName || team.name,
+            color: team.color ? ('#'+team.color) : '#c8102e',
+            altColor: team.alternateColor ? ('#'+team.alternateColor) : '#000000'
+          });
+        }
+        okCount++;
+      }catch(err){
+        failCount++;
+        console.error('Failed loading', lg.label, err);
+      }
+    }
+
+    loadTeamsBtn.disabled = false;
+    if (allTeams.length === 0){
+      loadStatus.className = 'status-line error';
+      loadStatus.textContent = 'Could not load team data (network/CORS blocked from this browser). Use the manual roster paste option below instead.';
+    } else {
+      loadStatus.className = 'status-line good';
+      loadStatus.textContent = `Loaded ${allTeams.length} teams across ${okCount} league(s).` + (failCount ? ` ${failCount} league(s) failed to load.` : '');
+      teamPanel.style.display = 'block';
+      renderTeamList('');
+    }
+  }
+
+  // ---------- Team search / select ----------
+  teamSearch.addEventListener('input', ()=>renderTeamList(teamSearch.value));
+
+  function renderTeamList(query){
+    const q = normalize(query);
+    let matches = allTeams;
+    if (q){
+      matches = allTeams.filter(t=>{
+        return normalize(t.name).includes(q) || normalize(t.shortName).includes(q);
+      });
+    }
+    matches = matches.slice(0, 40);
+    teamList.innerHTML = '';
+    if (matches.length === 0){
+      teamList.innerHTML = '<div class="status-line">No matches.</div>';
+      return;
+    }
+    for (const t of matches){
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      row.innerHTML = `
+        <div class="team-row-left">
+          <div class="team-swatch" style="background:${t.color}"></div>
+          <div class="name">${t.name}</div>
+        </div>
+        <div class="lg">${t.label}</div>
+      `;
+      row.addEventListener('click', ()=>selectTeam(t));
+      teamList.appendChild(row);
+    }
+  }
+
+  async function selectTeam(team){
+    teamSearch.value = '';
+    teamList.innerHTML = '';
+    rosterBadge.style.display = 'flex';
+    rbName.textContent = team.name;
+    rbCount.textContent = 'Loading roster…';
+    applyTheme(team.color, team.altColor);
+
+    try{
+      const url = `${ESPN_BASE}/${team.sport}/${team.league}/teams/${team.id}?enable=roster`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const groups = data.team?.athletes || [];
+      const players = [];
+      for (const g of groups){
+        const items = g.items || (Array.isArray(g) ? g : []);
+        for (const p of items){
+          players.push({
+            id: p.id,
+            name: p.fullName || p.displayName,
+            jersey: p.jersey || '—',
+            note: ''
+          });
+        }
+      }
+      if (players.length === 0) throw new Error('empty roster');
+      roster = players;
+      onRosterReady(team.name);
+    }catch(err){
+      console.error(err);
+      rbCount.textContent = 'Failed to load roster — use manual paste below.';
+      rosterBadge.style.display = 'none';
+    }
+  }
+
+  function applyTheme(primary, secondary){
+    document.documentElement.style.setProperty('--team-primary', primary);
+    document.documentElement.style.setProperty('--team-secondary', secondary);
+  }
+
+  rbClear.addEventListener('click', ()=>{
+    roster = [];
+    rosterBadge.style.display = 'none';
+    gamePanel.style.display = 'none';
+    renderTeamList('');
+  });
+
+  // ---------- Manual roster paste fallback ----------
+  manualLoadBtn.addEventListener('click', ()=>{
+    const text = manualRosterText.value.trim();
+    if (!text){ return; }
+    const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+    const players = [];
+    lines.forEach((line, i)=>{
+      const parts = line.split(',');
+      if (parts.length >= 2){
+        const name = parts[0].trim();
+        const jersey = parts.slice(1).join(',').trim();
+        players.push({id:'manual-'+i, name, jersey, note:''});
+      }
+    });
+    if (players.length === 0){
+      alert('Format each line as: Player Name, Number');
+      return;
+    }
+    roster = players;
+    const label = manualTeamName.value.trim() || 'Manual Roster';
+    rosterBadge.style.display = 'flex';
+    rbName.textContent = label;
+    applyTheme('#c8102e','#000000');
+    onRosterReady(label);
+  });
+
+  function onRosterReady(teamLabel){
+    rbCount.textContent = `${roster.length} players ready`;
+    gamePanel.style.display = 'block';
+    foundIds = new Set();
+    lastMatchId = null;
+    sbNumber.textContent = '—';
+    sbName.textContent = 'Waiting for a name...';
+    renderFoundGrid();
+    topSub.textContent = teamLabel + ' — ' + roster.length + ' players loaded';
+    gamePanel.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  // ---------- Manual backup search ----------
+  manualSearch.addEventListener('input', ()=>{
+    const q = normalize(manualSearch.value);
+    manualResults.innerHTML = '';
+    if (!q) return;
+    const matches = roster.filter(p=>normalize(p.name).includes(q)).slice(0, 15);
+    for (const p of matches){
+      const row = document.createElement('div');
+      row.className = 'search-result';
+      row.innerHTML = `<span>${p.name}</span><span class="num">#${p.jersey}</span>`;
+      row.addEventListener('click', ()=>showMatch(p, true));
+      manualResults.appendChild(row);
+    }
+  });
+
+  // ---------- Matching + display ----------
+  function showMatch(player, isManual){
+    sbNumber.textContent = player.jersey;
+    sbName.textContent = player.name;
+    lastMatchId = player.id;
+    lastMatchTime = Date.now();
+    foundIds.add(player.id);
+    renderFoundGrid();
+    if (navigator.vibrate) navigator.vibrate(isManual ? 30 : 60);
+  }
+
+  function renderFoundGrid(){
+    foundGrid.innerHTML = '';
+    for (const id of foundIds){
+      const p = roster.find(r=>r.id===id);
+      if (!p) continue;
+      const chip = document.createElement('div');
+      chip.className = 'found-chip';
+      chip.innerHTML = `<b>#${p.jersey}</b><span>${p.name}</span>`;
+      foundGrid.appendChild(chip);
+    }
+  }
+
+  // ---------- Speech recognition ----------
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  micBtn.addEventListener('click', ()=>{
+    if (!SpeechRec){
+      micStatus.className = 'status-line error';
+      micStatus.textContent = 'Speech recognition isn\'t supported in this browser. On iPhone use Safari (not Chrome). On Android use Chrome. Otherwise, use manual search.'
+      return
+    }
+    if (recognizing){
+      stopListening();
+    } else {
+      startListening();
+    }
+  });
+
+  function startListening(){
+    recognition = new SpeechRec();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event)=>{
+      const lastResult = event.results[event.results.length - 1];
+      const transcript = lastResult[0].transcript;
+      transcriptBox.textContent = transcript;
+      processTranscript(transcript);
+    };
+
+    recognition.onerror = (event)=>{
+      micStatus.className = 'status-line error';
+      micStatus.textContent = 'Mic error: ' + event.error + '. Tap Start Listening to retry.';
+    };
+
+    recognition.onend = ()=>{
+      // auto-restart if we're still supposed to be listening (browsers stop it periodically)
+      if (recognizing){
+        try { recognition.start(); } catch(e){}
+      }
+    };
+
+    try{
+      recognition.start();
+      recognizing = true;
+      micBtn.textContent = 'Stop Listening';
+      micBtn.classList.add('listening');
+      micStatus.className = 'status-line good';
+      micStatus.textContent = 'Listening…';
+    }catch(err){
+      micStatus.className = 'status-line error';
+      micStatus.textContent = 'Could not start mic: ' + err.message;
+    }
+  }
+
+  function stopListening(){
+    recognizing = false;
+    if (recognition){
+      recognition.onend = null;
+      recognition.stop();
+    }
+    micBtn.textContent = 'Start Listening';
+    micBtn.classList.remove('listening');
+    micStatus.textContent = 'Stopped.';
+  }
+
+  const COOLDOWN_MS = 2200;
+  const WINDOW_SIZE = 6; // last N words considered for matching
+
+  function processTranscript(transcript){
+    const words = normalize(transcript).split(' ').filter(Boolean);
+    if (words.length === 0) return;
+    const window = words.slice(-WINDOW_SIZE);
+
+    let best = null;
+    let bestScore = 0;
+
+    for (const p of roster){
+      const nameTokens = normalize(p.name).split(' ').filter(Boolean);
+      if (nameTokens.length === 0) continue;
+      const lastToken = nameTokens[nameTokens.length - 1];
+      const firstToken = nameTokens[0];
+
+      const lastSim = bestTokenSim(lastToken, window);
+      const firstSim = bestTokenSim(firstToken, window);
+
+      // require strong last-name match; first name can be weaker/looser
+      if (lastSim < 0.72) continue;
+
+      const score = lastSim * 0.7 + firstSim * 0.3;
+      if (score > bestScore){
+        bestScore = score;
+        best = p;
+      }
+    }
+
+    if (best && bestScore >= 0.68){
+      const now = Date.now();
+      const isSameAsLast = best.id === lastMatchId;
+      const cooledDown = (now - lastMatchTime) > COOLDOWN_MS;
+      if (!isSameAsLast || cooledDown){
+        showMatch(best, false);
+      }
+    }
+  }
+
+  // ---------- Timer ----------
+  function updateTimerDisplay(){
+    const m = Math.floor(timerRemaining / 60);
+    const s = timerRemaining % 60;
+    timerDisplay.textContent = m + ':' + String(s).padStart(2,'0');
+    timerDisplay.classList.toggle('low', timerRemaining <= 10);
+  }
+
+  timerStartBtn.addEventListener('click', ()=>{
+    if (timerInterval) return;
+    timerRemaining = 30;
+    updateTimerDisplay();
+    timerInterval = setInterval(()=>{
+      timerRemaining--;
+      updateTimerDisplay();
+      if (timerRemaining <= 0){
+        clearInterval(timerInterval);
+        timerInterval = null;
+        if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      }
+    }, 1000);
+  });
+
+  timerResetBtn.addEventListener('click', ()=>{
+    clearInterval(timerInterval);
+    timerInterval = null;
+    timerRemaining = 30;
+    updateTimerDisplay();
+    foundIds = new Set();
+    lastMatchId = null;
+    sbNumber.textContent = '—';
+    sbName.textContent = 'Waiting for a name...';
+    renderFoundGrid();
+  });
+
+  updateTimerDisplay();
+
+})();
+</script>
+</body>
+</html>
