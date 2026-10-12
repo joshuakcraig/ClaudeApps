@@ -325,7 +325,8 @@
     }
     document.querySelectorAll('.sport-btn').forEach(b=>b.classList.toggle('active', b.dataset.sport === sport));
     activeSport = sport;
-    roster = datasets[sport].map((p, i)=>({ id: sport + '-' + i, name: p.name, entries: p.entries }));
+    roster = datasets[sport].map((p, i)=>prepPlayer({ id: sport + '-' + i, name: p.name, entries: p.entries }));
+    indexRoster();
     document.documentElement.style.setProperty('--accent', SPORT_COLORS[sport] || '#c8102e');
     rosterBadge.style.display = 'flex';
     rbName.textContent = sport.toUpperCase();
@@ -361,7 +362,8 @@
       alert('Format each line as: Player Name, Number, Team (team optional)');
       return;
     }
-    added.forEach((p, i)=> roster.push({ id: 'manual-' + Date.now() + '-' + i, name: p.name, entries: p.entries }));
+    added.forEach((p, i)=> roster.push(prepPlayer({ id: 'manual-' + Date.now() + '-' + i, name: p.name, entries: p.entries })));
+    indexRoster();
     const label = manualTeamName.value.trim() || (activeSport ? activeSport.toUpperCase() : 'Manual List');
     rosterBadge.style.display = 'flex';
     rbName.textContent = label;
@@ -493,6 +495,7 @@
   });
 
   function startListening(){
+    resetConsumed();
     recognition = new SpeechRec();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -502,7 +505,7 @@
       const lastResult = event.results[event.results.length - 1];
       const transcript = lastResult[0].transcript;
       transcriptBox.textContent = transcript;
-      processTranscript(transcript);
+      processTranscript(transcript, event.results.length - 1);
     };
 
     recognition.onerror = (event)=>{
@@ -512,6 +515,7 @@
 
     recognition.onend = ()=>{
       if (recognizing){
+        resetConsumed(); // a restarted session numbers its results from 0 again
         try { recognition.start(); } catch(e){}
       }
     };
@@ -543,38 +547,134 @@
   const COOLDOWN_MS = 2200;
   const WINDOW_SIZE = 6;
 
-  function processTranscript(transcript){
-    const words = normalize(transcript).split(' ').filter(Boolean);
-    if (words.length === 0 || roster.length === 0) return;
-    const window = words.slice(-WINDOW_SIZE);
+  // Precompute match tokens once per player (datasets can be 20k+ names).
+  // Name suffixes (Jr, Sr, II, III, IV) are dropped so "Ken Griffey Jr" matches on "griffey".
+  const SUFFIXES = new Set(['jr','sr','ii','iii','iv','v']);
+  function prepPlayer(p){
+    const toks = normalize(p.name).split(' ').filter(Boolean);
+    while (toks.length > 1 && SUFFIXES.has(toks[toks.length - 1])) toks.pop();
+    p.last = toks.length ? toks[toks.length - 1] : '';
+    p.first = toks.length ? toks[0] : '';
+    return p;
+  }
 
-    let best = null;
-    let bestScore = 0;
-
+  // Exact last-name index: instant lookup for the common case (name heard correctly).
+  let lastIndex = new Map();
+  function indexRoster(){
+    lastIndex = new Map();
     for (const p of roster){
-      const nameTokens = normalize(p.name).split(' ').filter(Boolean);
-      if (nameTokens.length === 0) continue;
-      const lastToken = nameTokens[nameTokens.length - 1];
-      const firstToken = nameTokens[0];
+      if (!p.last) continue;
+      let a = lastIndex.get(p.last);
+      if (!a){ a = []; lastIndex.set(p.last, a); }
+      a.push(p);
+    }
+  }
 
-      const lastSim = bestTokenSim(lastToken, window);
-      if (lastSim < 0.72) continue;
-      const firstSim = bestTokenSim(firstToken, window);
+  // Best similarity of `word` against tokens, plus where in the window it matched
+  // (later/more recent position wins ties).
+  function bestTokenMatch(word, tokens){
+    let best = 0, idx = -1;
+    for (let i = 0; i < tokens.length; i++){
+      const s = similarity(word, tokens[i]);
+      if (s >= best){ best = s; idx = i; }
+    }
+    return [best, idx];
+  }
 
-      const score = lastSim * 0.7 + firstSim * 0.3;
-      if (score > bestScore){
-        bestScore = score;
-        best = p;
+  // Returns [score, lastNameIndexInWindow]
+  function scorePlayer(p, win){
+    const [lastSim, lastIdx] = bestTokenMatch(p.last, win);
+    if (lastSim < 0.72) return [0, -1];
+    const [firstSim] = bestTokenMatch(p.first, win);
+    const recency = win.length > 1 ? lastIdx / (win.length - 1) : 1;
+    return [lastSim * 0.7 + firstSim * 0.3 + recency * 0.03, lastIdx];
+  }
+
+  // Only words heard since the last match are scored (plus a short look-back so a
+  // first name just before the cut-off still counts), so the previous player's
+  // name can't keep re-triggering while the host moves on.
+  const LOOKBACK = 2;
+  const CONFIDENT = 0.9;   // exact surname + first name also heard -> accept immediately
+  const ACCEPT = 0.68;     // lower-confidence fuzzy accept (needs first AND last name heard)
+  let currentResultIdx = -1;
+  let consumedWords = 0;
+  function resetConsumed(){ currentResultIdx = -1; consumedWords = 0; }
+
+  const FUZZY_MIN_MS = 250;
+  let lastFuzzyTime = 0;
+  let fuzzyTimer = null;
+  let pendingArgs = null;
+
+  function pickBest(pool, win, fuzzy, blockId){
+    const winLens = fuzzy ? win.map(w=>w.length) : null;
+    let best = null, bestScore = 0, bestIdx = -1;
+    for (const p of pool){
+      if (!p.last || p.id === blockId) continue;
+      if (fuzzy){
+        // Cheap prefilter: skip unless some heard word is close in length to the last name
+        let lenOk = false;
+        for (const l of winLens){
+          if (Math.abs(l - p.last.length) <= 3){ lenOk = true; break; }
+        }
+        if (!lenOk) continue;
+      }
+      const [score, idx] = scorePlayer(p, win);
+      if (score > bestScore){ bestScore = score; best = p; bestIdx = idx; }
+    }
+    return [best, bestScore, bestIdx];
+  }
+
+  function processTranscript(transcript, resultIdx){
+    if (roster.length === 0) return;
+    const words = normalize(transcript).split(' ').filter(Boolean);
+    if (words.length === 0) return;
+
+    if (resultIdx !== currentResultIdx){ currentResultIdx = resultIdx; consumedWords = 0; }
+    if (consumedWords > words.length) consumedWords = words.length;
+    if (consumedWords >= words.length) return;           // nothing new since last match
+    const startIdx = Math.max(consumedWords - LOOKBACK, words.length - WINDOW_SIZE, 0);
+    const win = words.slice(startIdx);
+
+    const now = Date.now();
+    // The player we just showed can't be re-picked while the host is still moving on
+    const blockId = (now - lastMatchTime) <= COOLDOWN_MS ? lastMatchId : null;
+
+    // Tier 1: exact last-name hits (instant). Accept only a confident full-name match,
+    // so "Jordan" (a first name) can't hijack "Jordan Staal" via Michael Jordan.
+    let pool = [];
+    for (const w of win){
+      const a = lastIndex.get(w);
+      if (a) pool = pool.concat(a);
+    }
+    if (pool.length){
+      const [b, s, idx] = pickBest(pool, win, false, blockId);
+      if (b && s >= CONFIDENT){
+        showMatch(b);
+        consumedWords = startIdx + idx + 1;
+        return;
       }
     }
 
-    if (best && bestScore >= 0.68){
-      const now = Date.now();
-      const isSameAsLast = best.id === lastMatchId;
-      const cooledDown = (now - lastMatchTime) > COOLDOWN_MS;
-      if (!isSameAsLast || cooledDown){
-        showMatch(best);
+    // Tier 2: fuzzy scan of the whole roster (throttled). Handles mishearings (Stall/Staal)
+    // and lower-confidence matches, which must have at least two words heard (first + last).
+    if (win.length < 2) return;
+    const wait = FUZZY_MIN_MS - (now - lastFuzzyTime);
+    if (wait > 0){
+      pendingArgs = [transcript, resultIdx];
+      if (!fuzzyTimer){
+        fuzzyTimer = setTimeout(()=>{
+          fuzzyTimer = null;
+          const a = pendingArgs; pendingArgs = null;
+          if (a) processTranscript(a[0], a[1]);
+        }, wait);
       }
+      return;
+    }
+    lastFuzzyTime = now;
+    const [b, s, idx] = pickBest(roster, win, true, blockId);
+    if (b && s >= ACCEPT){
+      showMatch(b);
+      consumedWords = startIdx + idx + 1;
     }
   }
 
@@ -608,6 +708,7 @@
     updateTimerDisplay();
     foundIds = new Set();
     lastMatchId = null;
+    resetConsumed();
     sbNumber.textContent = '—';
     sbNumber.classList.remove('multi');
     sbName.textContent = 'Waiting for a name...';
