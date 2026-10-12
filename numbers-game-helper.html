@@ -8,8 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --team-primary:#c8102e;
-    --team-secondary:#000000;
+    --accent:#c8102e;
     --bg:#0b0c0f;
     --panel:#15171c;
     --panel-2:#1b1e25;
@@ -29,17 +28,16 @@
 
   .topbar{
     padding:16px 18px 14px;
-    background:linear-gradient(180deg, var(--team-secondary) 0%, var(--bg) 130%);
-    border-bottom:3px solid var(--team-primary);
+    background:linear-gradient(180deg, #000 0%, var(--bg) 130%);
+    border-bottom:3px solid var(--accent);
     position:sticky; top:0; z-index:20;
-    transition:background .5s ease, border-color .5s ease;
+    transition:border-color .4s ease;
   }
-  .topbar-row{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
   .topbar h1{
     font-size:19px; letter-spacing:.06em; text-transform:uppercase;
     margin:0; font-weight:700; color:var(--text);
   }
-  .topbar h1 span{color:var(--team-primary); transition:color .5s ease;}
+  .topbar h1 span{color:var(--accent); transition:color .4s ease;}
   .topbar .sub{font-size:11px; color:var(--text-dim); margin-top:2px;}
 
   main{max-width:640px; margin:0 auto; padding:16px;}
@@ -60,7 +58,7 @@
   }
   button:active{transform:scale(.97);}
   .btn-primary{
-    background:var(--team-primary); color:#fff;
+    background:var(--accent); color:#fff;
     padding:14px 18px; font-size:15px; width:100%;
     text-transform:uppercase;
   }
@@ -69,35 +67,28 @@
     background:var(--panel-2); color:var(--text); border:1px solid var(--line);
     padding:12px 16px; font-size:13px;
   }
-  .btn-row{display:flex; gap:10px;}
-  .btn-row button{flex:1;}
+
+  .sport-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .sport-btn{
+    padding:22px 10px; font-size:20px; text-transform:uppercase;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    text-align:center;
+  }
+  .sport-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .sport-btn .count{display:block; font-size:10px; color:var(--text-dim); margin-top:4px; letter-spacing:.05em;}
+  .sport-btn.active .count{color:rgba(255,255,255,0.8);}
 
   input[type="text"]{
     width:100%; background:var(--panel-2); border:1px solid var(--line);
     color:var(--text); border-radius:10px; padding:13px 14px;
     font-family:'JetBrains Mono',monospace; font-size:15px;
   }
-  input[type="text"]:focus{outline:none; border-color:var(--team-primary);}
+  input[type="text"]:focus{outline:none; border-color:var(--accent);}
   textarea{
     width:100%; min-height:110px; background:var(--panel-2); border:1px solid var(--line);
     color:var(--text); border-radius:10px; padding:12px; font-family:'JetBrains Mono',monospace;
     font-size:13px; resize:vertical;
   }
-
-  .team-list{max-height:280px; overflow-y:auto; margin-top:10px;}
-  .team-row{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:11px 12px; border-radius:10px; cursor:pointer;
-    border:1px solid transparent;
-  }
-  .team-row:hover, .team-row:active{background:var(--panel-2); border-color:var(--line);}
-  .team-row .name{font-size:14px;}
-  .team-row .lg{
-    font-size:10px; color:var(--text-dim); border:1px solid var(--line);
-    padding:2px 7px; border-radius:6px; letter-spacing:.05em;
-  }
-  .team-swatch{width:10px; height:10px; border-radius:3px; margin-right:9px; flex-shrink:0;}
-  .team-row-left{display:flex; align-items:center; overflow:hidden;}
 
   .status-line{font-size:12px; color:var(--text-dim); margin-top:8px; line-height:1.5;}
   .status-line.error{color:var(--red);}
@@ -112,7 +103,6 @@
   .roster-badge .rb-count{font-size:11px; color:var(--text-dim);}
   .roster-badge .rb-clear{font-size:11px; color:var(--text-dim); text-decoration:underline; cursor:pointer; background:none;}
 
-  /* Big scoreboard display */
   .scoreboard{
     background:#000; border-radius:var(--radius); border:1px solid var(--line);
     padding:26px 18px; text-align:center; position:relative; overflow:hidden;
@@ -124,12 +114,13 @@
   }
   .sb-label{font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px;}
   .sb-number{
-    font-family:'Oswald',sans-serif; font-weight:700; font-size:96px; line-height:1;
+    font-family:'Oswald',sans-serif; font-weight:700; font-size:88px; line-height:1;
     color:var(--amber); text-shadow:0 0 22px rgba(255,180,0,.45);
-    letter-spacing:.02em; min-height:100px;
+    letter-spacing:.02em; min-height:92px;
   }
+  .sb-number.multi{font-size:52px;}
   .sb-name{font-size:19px; margin-top:6px; color:var(--text); font-family:'Oswald',sans-serif; font-weight:500;}
-  .sb-empty{color:var(--text-dim); font-size:15px; padding:20px 0 6px;}
+  .sb-teams{font-size:12px; color:var(--text-dim); margin-top:2px;}
 
   .mic-row{display:flex; align-items:center; gap:12px; margin-top:14px;}
   .mic-btn{
@@ -165,47 +156,41 @@
     min-height:20px; max-height:60px; overflow-y:auto; word-break:break-word;
   }
 
-  .search-results{max-height:220px; overflow-y:auto; margin-top:8px;}
+  .search-results{max-height:260px; overflow-y:auto; margin-top:8px;}
   .search-result{
-    display:flex; justify-content:space-between; align-items:center;
+    display:flex; flex-direction:column; gap:2px;
     padding:10px 12px; border-radius:8px; cursor:pointer;
   }
   .search-result:hover, .search-result:active{background:var(--panel-2);}
+  .search-result .sr-top{display:flex; justify-content:space-between; align-items:center;}
   .search-result .num{color:var(--amber); font-weight:700; font-family:'Oswald',sans-serif; font-size:16px;}
+  .search-result .sr-teams{font-size:11px; color:var(--text-dim);}
 
   details{margin-top:4px;}
   summary{cursor:pointer; font-size:12px; color:var(--text-dim); padding:4px 0;}
 
   .footnote{font-size:11px; color:var(--text-dim); line-height:1.6; margin-top:10px;}
-  .pill{
-    display:inline-block; font-size:10px; padding:2px 8px; border-radius:20px;
-    border:1px solid var(--line); color:var(--text-dim); margin-left:6px;
-  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="topbar-row">
-    <h1>The Numbers <span>Game</span> Helper</h1>
-  </div>
-  <div class="sub" id="topSub">Load rosters, pick the category, listen.</div>
+  <div><h1>The Numbers <span>Game</span> Helper</h1></div>
+  <div class="sub" id="topSub">Pick the sport, listen. Any team, any era.</div>
 </div>
 
 <main>
 
-  <!-- STEP 1: Load team data -->
-  <div class="panel" id="loadPanel">
-    <h2>Step 1 — Load Team Data</h2>
-    <button class="btn-primary" id="loadTeamsBtn">Load Rosters (NHL / NFL / NBA / MLB)</button>
-    <div class="status-line" id="loadStatus">Do this once, before the show starts. Needs internet.</div>
-  </div>
-
-  <!-- STEP 2: category / team select -->
-  <div class="panel" id="teamPanel" style="display:none;">
-    <h2>Step 2 — Category Announced? Pick The Team</h2>
-    <input type="text" id="teamSearch" placeholder="Type team name (e.g. Hurricanes)..." autocomplete="off">
-    <div class="team-list" id="teamList"></div>
+  <!-- STEP 1: sport select -->
+  <div class="panel" id="sportPanel">
+    <h2>Step 1 — Category Announced? Pick The Sport</h2>
+    <div class="sport-grid">
+      <button class="sport-btn" data-sport="nhl">NHL<span class="count" id="count-nhl">—</span></button>
+      <button class="sport-btn" data-sport="nfl">NFL<span class="count" id="count-nfl">—</span></button>
+      <button class="sport-btn" data-sport="nba">NBA<span class="count" id="count-nba">—</span></button>
+      <button class="sport-btn" data-sport="mlb">MLB<span class="count" id="count-mlb">—</span></button>
+    </div>
+    <div class="status-line" id="sportStatus">Loading datasets…</div>
 
     <div class="roster-badge" id="rosterBadge" style="display:none;">
       <div>
@@ -216,23 +201,24 @@
     </div>
 
     <details>
-      <summary>Roster fetch not working? Paste one manually instead →</summary>
+      <summary>Missing a player, or dataset didn't load? Paste a list manually →</summary>
       <div style="margin-top:8px;">
-        <input type="text" id="manualTeamName" placeholder="Team name for the header (optional)" autocomplete="off" style="margin-bottom:8px;">
-        <textarea id="manualRosterText" placeholder="One player per line:&#10;Jordan Staal, 11&#10;Sebastian Aho, 20&#10;Andrei Svechnikov, 37"></textarea>
-        <button class="btn-secondary" id="manualLoadBtn" style="margin-top:8px; width:100%;">Use This List</button>
+        <input type="text" id="manualTeamName" placeholder="Label for the header (optional)" autocomplete="off" style="margin-bottom:8px;">
+        <textarea id="manualRosterText" placeholder="One player per line:&#10;Michael Jordan, 23, Chicago Bulls&#10;Michael Jordan, 45, Chicago Bulls&#10;Michael Jordan, 23, Washington Wizards"></textarea>
+        <button class="btn-secondary" id="manualLoadBtn" style="margin-top:8px; width:100%;">Use This List (adds to loaded data)</button>
       </div>
     </details>
   </div>
 
-  <!-- STEP 3: game panel -->
+  <!-- STEP 2: game panel -->
   <div class="panel" id="gamePanel" style="display:none;">
-    <h2>Step 3 — Round Is Live</h2>
+    <h2>Step 2 — Round Is Live</h2>
 
     <div class="scoreboard">
       <div class="sb-label">Last Match</div>
       <div class="sb-number" id="sbNumber">—</div>
       <div class="sb-name" id="sbName">Waiting for a name...</div>
+      <div class="sb-teams" id="sbTeams"></div>
     </div>
 
     <div class="mic-row">
@@ -261,27 +247,12 @@
 <script>
 (function(){
 
-  // ---------- Config ----------
-  const LEAGUES = [
-    {key:'nhl', sport:'hockey',     league:'nhl', label:'NHL'},
-    {key:'nfl', sport:'football',   league:'nfl', label:'NFL'},
-    {key:'nba', sport:'basketball', league:'nba', label:'NBA'},
-    {key:'mlb', sport:'baseball',   league:'mlb', label:'MLB'},
-  ];
-  const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
+  const SPORT_COLORS = { nhl:'#4a90d9', nfl:'#6b4a2f', nba:'#e0703a', mlb:'#c8102e' };
+  const DATA_FILES = { nhl:'data/nhl.json', nfl:'data/nfl.json', nba:'data/nba.json', mlb:'data/mlb.json' };
 
-  // Set this once you've deployed the Cloudflare Worker proxy (see espn-cors-proxy-worker.js).
-  // Example: 'https://numbers-game-proxy.yourname.workers.dev'
-  // Leave as '' to call ESPN directly (will fail with a CORS error in real browsers).
-  const PROXY_URL = 'https://numbers-game-proxy.jkcraig.workers.dev/';
-
-  function apiUrl(target){
-    if (!PROXY_URL) return target;
-    return PROXY_URL + '/?url=' + encodeURIComponent(target);
-  }
-
-  let allTeams = [];      // {id, sport, league, label, name, color, altColor}
-  let roster = [];        // {id, name, jersey, note}
+  let datasets = {};   // sport -> array of {name, entries:[{team,number}]}
+  let roster = [];     // active dataset with {id, name, entries}
+  let activeSport = null;
   let foundIds = new Set();
   let lastMatchId = null;
   let lastMatchTime = 0;
@@ -290,13 +261,8 @@
   let timerInterval = null;
   let timerRemaining = 30;
 
-  // ---------- DOM refs ----------
   const $ = (id)=>document.getElementById(id);
-  const loadTeamsBtn = $('loadTeamsBtn');
-  const loadStatus = $('loadStatus');
-  const teamPanel = $('teamPanel');
-  const teamSearch = $('teamSearch');
-  const teamList = $('teamList');
+  const sportStatus = $('sportStatus');
   const rosterBadge = $('rosterBadge');
   const rbName = $('rbName');
   const rbCount = $('rbCount');
@@ -304,6 +270,7 @@
   const gamePanel = $('gamePanel');
   const sbNumber = $('sbNumber');
   const sbName = $('sbName');
+  const sbTeams = $('sbTeams');
   const micBtn = $('micBtn');
   const micStatus = $('micStatus');
   const transcriptBox = $('transcriptBox');
@@ -319,7 +286,101 @@
   const topSub = $('topSub');
   const footnote = $('footnote');
 
-  footnote.innerHTML = 'Jersey numbers reflect each player\'s <b>current</b> number from live team data — historical/previous numbers aren\'t included. Speech matching favors speed over certainty; use manual search if a name gets missed. On iPhone, use <b>Safari</b> for live listening — iOS Chrome does not support speech recognition (Apple restricts it in their WebKit engine), but iOS Safari does. This page must be served over http(s):// — opening it as a local file on iOS blocks JavaScript entirely.'
+  footnote.innerHTML = 'Data covers players past and present for the selected sport, sourced from Wikidata (community-maintained, so coverage of jersey numbers varies by player — obscure/older players may be missing). Speech matching favors speed over certainty; use manual search if a name gets missed. On iPhone, use <b>Safari</b> for live listening — iOS Chrome does not support speech recognition, but iOS Safari does.';
+
+  // ---------- Load bundled datasets (same-origin, no CORS issue) ----------
+  async function loadDatasets(){
+    const results = await Promise.allSettled(
+      Object.entries(DATA_FILES).map(async ([sport, path])=>{
+        const res = await fetch(path);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+        datasets[sport] = json;
+        $('count-' + sport).textContent = json.length + ' players';
+      })
+    );
+    const failed = results.filter(r=>r.status === 'rejected');
+    if (failed.length === Object.keys(DATA_FILES).length){
+      sportStatus.className = 'status-line error';
+      sportStatus.textContent = 'Could not load any datasets — make sure the data/ folder (nhl.json, nfl.json, nba.json, mlb.json) is deployed alongside this file. Use manual paste below in the meantime.';
+    } else if (failed.length > 0){
+      sportStatus.className = 'status-line error';
+      sportStatus.textContent = failed.length + ' of ' + Object.keys(DATA_FILES).length + ' dataset(s) failed to load — check those files are present in data/.';
+    } else {
+      sportStatus.className = 'status-line good';
+      sportStatus.textContent = 'All datasets loaded. Tap a sport when the category is announced.';
+    }
+  }
+  loadDatasets();
+
+  document.querySelectorAll('.sport-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>selectSport(btn.dataset.sport));
+  });
+
+  function selectSport(sport){
+    if (!datasets[sport] || datasets[sport].length === 0){
+      sportStatus.className = 'status-line error';
+      sportStatus.textContent = 'That dataset isn\'t loaded. Use manual paste below.';
+      return;
+    }
+    document.querySelectorAll('.sport-btn').forEach(b=>b.classList.toggle('active', b.dataset.sport === sport));
+    activeSport = sport;
+    roster = datasets[sport].map((p, i)=>({ id: sport + '-' + i, name: p.name, entries: p.entries }));
+    document.documentElement.style.setProperty('--accent', SPORT_COLORS[sport] || '#c8102e');
+    rosterBadge.style.display = 'flex';
+    rbName.textContent = sport.toUpperCase();
+    onRosterReady(sport.toUpperCase());
+  }
+
+  rbClear.addEventListener('click', ()=>{
+    roster = [];
+    activeSport = null;
+    rosterBadge.style.display = 'none';
+    gamePanel.style.display = 'none';
+    document.querySelectorAll('.sport-btn').forEach(b=>b.classList.remove('active'));
+  });
+
+  // ---------- Manual roster paste (adds on top of whatever's loaded) ----------
+  manualLoadBtn.addEventListener('click', ()=>{
+    const text = manualRosterText.value.trim();
+    if (!text) return;
+    const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+    const byName = {};
+    lines.forEach(line=>{
+      const parts = line.split(',').map(s=>s.trim());
+      if (parts.length >= 2){
+        const name = parts[0];
+        const number = parts[1];
+        const team = parts[2] || '';
+        byName[name] = byName[name] || { name, entries: [] };
+        byName[name].entries.push({ team, number });
+      }
+    });
+    const added = Object.values(byName);
+    if (added.length === 0){
+      alert('Format each line as: Player Name, Number, Team (team optional)');
+      return;
+    }
+    added.forEach((p, i)=> roster.push({ id: 'manual-' + Date.now() + '-' + i, name: p.name, entries: p.entries }));
+    const label = manualTeamName.value.trim() || (activeSport ? activeSport.toUpperCase() : 'Manual List');
+    rosterBadge.style.display = 'flex';
+    rbName.textContent = label;
+    onRosterReady(label);
+  });
+
+  function onRosterReady(label){
+    rbCount.textContent = `${roster.length} players ready`;
+    gamePanel.style.display = 'block';
+    foundIds = new Set();
+    lastMatchId = null;
+    sbNumber.textContent = '—';
+    sbNumber.classList.remove('multi');
+    sbName.textContent = 'Waiting for a name...';
+    sbTeams.textContent = '';
+    renderFoundGrid();
+    topSub.textContent = label + ' — ' + roster.length + ' players loaded';
+    gamePanel.scrollIntoView({behavior:'smooth', block:'start'});
+  }
 
   // ---------- Utilities ----------
   function normalize(s){
@@ -351,7 +412,6 @@
     return 1 - d / Math.max(a.length, b.length);
   }
 
-  // best similarity of token `word` against any token in `tokens`
   function bestTokenSim(word, tokens){
     let best = 0;
     for (const t of tokens){
@@ -361,171 +421,20 @@
     return best;
   }
 
-  // ---------- Team loading ----------
-  loadTeamsBtn.addEventListener('click', loadAllTeams);
-
-  async function loadAllTeams(){
-    loadTeamsBtn.disabled = true;
-    loadStatus.textContent = 'Loading team lists…';
-    loadStatus.className = 'status-line';
-    allTeams = [];
-    let okCount = 0, failCount = 0;
-
-    for (const lg of LEAGUES){
-      try{
-        const url = `${ESPN_BASE}/${lg.sport}/${lg.league}/teams?limit=100`;
-        const res = await fetch(apiUrl(url));
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        const teams = (data.sports?.[0]?.leagues?.[0]?.teams) || [];
-        for (const t of teams){
-          const team = t.team;
-          allTeams.push({
-            id: team.id,
-            sport: lg.sport,
-            league: lg.league,
-            label: lg.label,
-            name: team.displayName,
-            shortName: team.shortDisplayName || team.name,
-            color: team.color ? ('#'+team.color) : '#c8102e',
-            altColor: team.alternateColor ? ('#'+team.alternateColor) : '#000000'
-          });
-        }
-        okCount++;
-      }catch(err){
-        failCount++;
-        console.error('Failed loading', lg.label, err);
-      }
+  function formatNumbers(entries){
+    const seen = new Set();
+    const parts = [];
+    for (const e of entries){
+      const key = e.number + '|' + e.team;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parts.push(e.team ? `${e.number} (${e.team})` : `${e.number}`);
     }
-
-    loadTeamsBtn.disabled = false;
-    if (allTeams.length === 0){
-      loadStatus.className = 'status-line error';
-      loadStatus.textContent = 'Could not load team data (network/CORS blocked from this browser). Use the manual roster paste option below instead.';
-    } else {
-      loadStatus.className = 'status-line good';
-      loadStatus.textContent = `Loaded ${allTeams.length} teams across ${okCount} league(s).` + (failCount ? ` ${failCount} league(s) failed to load.` : '');
-      teamPanel.style.display = 'block';
-      renderTeamList('');
-    }
+    return parts;
   }
 
-  // ---------- Team search / select ----------
-  teamSearch.addEventListener('input', ()=>renderTeamList(teamSearch.value));
-
-  function renderTeamList(query){
-    const q = normalize(query);
-    let matches = allTeams;
-    if (q){
-      matches = allTeams.filter(t=>{
-        return normalize(t.name).includes(q) || normalize(t.shortName).includes(q);
-      });
-    }
-    matches = matches.slice(0, 40);
-    teamList.innerHTML = '';
-    if (matches.length === 0){
-      teamList.innerHTML = '<div class="status-line">No matches.</div>';
-      return;
-    }
-    for (const t of matches){
-      const row = document.createElement('div');
-      row.className = 'team-row';
-      row.innerHTML = `
-        <div class="team-row-left">
-          <div class="team-swatch" style="background:${t.color}"></div>
-          <div class="name">${t.name}</div>
-        </div>
-        <div class="lg">${t.label}</div>
-      `;
-      row.addEventListener('click', ()=>selectTeam(t));
-      teamList.appendChild(row);
-    }
-  }
-
-  async function selectTeam(team){
-    teamSearch.value = '';
-    teamList.innerHTML = '';
-    rosterBadge.style.display = 'flex';
-    rbName.textContent = team.name;
-    rbCount.textContent = 'Loading roster…';
-    applyTheme(team.color, team.altColor);
-
-    try{
-      const url = `${ESPN_BASE}/${team.sport}/${team.league}/teams/${team.id}?enable=roster`;
-      const res = await fetch(apiUrl(url));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      const groups = data.team?.athletes || [];
-      const players = [];
-      for (const g of groups){
-        const items = g.items || (Array.isArray(g) ? g : []);
-        for (const p of items){
-          players.push({
-            id: p.id,
-            name: p.fullName || p.displayName,
-            jersey: p.jersey || '—',
-            note: ''
-          });
-        }
-      }
-      if (players.length === 0) throw new Error('empty roster');
-      roster = players;
-      onRosterReady(team.name);
-    }catch(err){
-      console.error(err);
-      rbCount.textContent = 'Failed to load roster — use manual paste below.';
-      rosterBadge.style.display = 'none';
-    }
-  }
-
-  function applyTheme(primary, secondary){
-    document.documentElement.style.setProperty('--team-primary', primary);
-    document.documentElement.style.setProperty('--team-secondary', secondary);
-  }
-
-  rbClear.addEventListener('click', ()=>{
-    roster = [];
-    rosterBadge.style.display = 'none';
-    gamePanel.style.display = 'none';
-    renderTeamList('');
-  });
-
-  // ---------- Manual roster paste fallback ----------
-  manualLoadBtn.addEventListener('click', ()=>{
-    const text = manualRosterText.value.trim();
-    if (!text){ return; }
-    const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
-    const players = [];
-    lines.forEach((line, i)=>{
-      const parts = line.split(',');
-      if (parts.length >= 2){
-        const name = parts[0].trim();
-        const jersey = parts.slice(1).join(',').trim();
-        players.push({id:'manual-'+i, name, jersey, note:''});
-      }
-    });
-    if (players.length === 0){
-      alert('Format each line as: Player Name, Number');
-      return;
-    }
-    roster = players;
-    const label = manualTeamName.value.trim() || 'Manual Roster';
-    rosterBadge.style.display = 'flex';
-    rbName.textContent = label;
-    applyTheme('#c8102e','#000000');
-    onRosterReady(label);
-  });
-
-  function onRosterReady(teamLabel){
-    rbCount.textContent = `${roster.length} players ready`;
-    gamePanel.style.display = 'block';
-    foundIds = new Set();
-    lastMatchId = null;
-    sbNumber.textContent = '—';
-    sbName.textContent = 'Waiting for a name...';
-    renderFoundGrid();
-    topSub.textContent = teamLabel + ' — ' + roster.length + ' players loaded';
-    gamePanel.scrollIntoView({behavior:'smooth', block:'start'});
+  function uniqueNumbers(entries){
+    return [...new Set(entries.map(e=>e.number))];
   }
 
   // ---------- Manual backup search ----------
@@ -533,25 +442,30 @@
     const q = normalize(manualSearch.value);
     manualResults.innerHTML = '';
     if (!q) return;
-    const matches = roster.filter(p=>normalize(p.name).includes(q)).slice(0, 15);
+    const matches = roster.filter(p=>normalize(p.name).includes(q)).slice(0, 20);
     for (const p of matches){
       const row = document.createElement('div');
       row.className = 'search-result';
-      row.innerHTML = `<span>${p.name}</span><span class="num">#${p.jersey}</span>`;
-      row.addEventListener('click', ()=>showMatch(p, true));
+      const nums = uniqueNumbers(p.entries).join(', ');
+      const teams = formatNumbers(p.entries).join(' · ');
+      row.innerHTML = `<div class="sr-top"><span>${p.name}</span><span class="num">#${nums}</span></div><div class="sr-teams">${teams}</div>`;
+      row.addEventListener('click', ()=>showMatch(p));
       manualResults.appendChild(row);
     }
   });
 
   // ---------- Matching + display ----------
-  function showMatch(player, isManual){
-    sbNumber.textContent = player.jersey;
+  function showMatch(player){
+    const nums = uniqueNumbers(player.entries);
+    sbNumber.textContent = nums.join(' / ');
+    sbNumber.classList.toggle('multi', nums.join(' / ').length > 4);
     sbName.textContent = player.name;
+    sbTeams.textContent = formatNumbers(player.entries).join('  ·  ');
     lastMatchId = player.id;
     lastMatchTime = Date.now();
     foundIds.add(player.id);
     renderFoundGrid();
-    if (navigator.vibrate) navigator.vibrate(isManual ? 30 : 60);
+    if (navigator.vibrate) navigator.vibrate(60);
   }
 
   function renderFoundGrid(){
@@ -561,7 +475,7 @@
       if (!p) continue;
       const chip = document.createElement('div');
       chip.className = 'found-chip';
-      chip.innerHTML = `<b>#${p.jersey}</b><span>${p.name}</span>`;
+      chip.innerHTML = `<b>#${uniqueNumbers(p.entries).join('/')}</b><span>${p.name}</span>`;
       foundGrid.appendChild(chip);
     }
   }
@@ -572,14 +486,10 @@
   micBtn.addEventListener('click', ()=>{
     if (!SpeechRec){
       micStatus.className = 'status-line error';
-      micStatus.textContent = 'Speech recognition isn\'t supported in this browser. On iPhone use Safari (not Chrome). On Android use Chrome. Otherwise, use manual search.'
-      return
+      micStatus.textContent = 'Speech recognition isn\'t supported in this browser. On iPhone use Safari (not Chrome). On Android use Chrome. Otherwise, use manual search.';
+      return;
     }
-    if (recognizing){
-      stopListening();
-    } else {
-      startListening();
-    }
+    if (recognizing) stopListening(); else startListening();
   });
 
   function startListening(){
@@ -601,7 +511,6 @@
     };
 
     recognition.onend = ()=>{
-      // auto-restart if we're still supposed to be listening (browsers stop it periodically)
       if (recognizing){
         try { recognition.start(); } catch(e){}
       }
@@ -632,11 +541,11 @@
   }
 
   const COOLDOWN_MS = 2200;
-  const WINDOW_SIZE = 6; // last N words considered for matching
+  const WINDOW_SIZE = 6;
 
   function processTranscript(transcript){
     const words = normalize(transcript).split(' ').filter(Boolean);
-    if (words.length === 0) return;
+    if (words.length === 0 || roster.length === 0) return;
     const window = words.slice(-WINDOW_SIZE);
 
     let best = null;
@@ -649,10 +558,8 @@
       const firstToken = nameTokens[0];
 
       const lastSim = bestTokenSim(lastToken, window);
-      const firstSim = bestTokenSim(firstToken, window);
-
-      // require strong last-name match; first name can be weaker/looser
       if (lastSim < 0.72) continue;
+      const firstSim = bestTokenSim(firstToken, window);
 
       const score = lastSim * 0.7 + firstSim * 0.3;
       if (score > bestScore){
@@ -666,7 +573,7 @@
       const isSameAsLast = best.id === lastMatchId;
       const cooledDown = (now - lastMatchTime) > COOLDOWN_MS;
       if (!isSameAsLast || cooledDown){
-        showMatch(best, false);
+        showMatch(best);
       }
     }
   }
@@ -702,7 +609,9 @@
     foundIds = new Set();
     lastMatchId = null;
     sbNumber.textContent = '—';
+    sbNumber.classList.remove('multi');
     sbName.textContent = 'Waiting for a name...';
+    sbTeams.textContent = '';
     renderFoundGrid();
   });
 
