@@ -169,6 +169,13 @@
   details{margin-top:4px;}
   summary{cursor:pointer; font-size:12px; color:var(--text-dim); padding:4px 0;}
 
+  .diag-log{
+    background:#000; border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:11px; color:#8b93a1; margin:8px 0 0;
+    max-height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-word;
+    font-family:'JetBrains Mono',monospace;
+  }
+
   .footnote{font-size:11px; color:var(--text-dim); line-height:1.6; margin-top:10px;}
 </style>
 </head>
@@ -219,13 +226,22 @@
       <div class="sb-number" id="sbNumber">—</div>
       <div class="sb-name" id="sbName">Waiting for a name...</div>
       <div class="sb-teams" id="sbTeams"></div>
+      <div class="sb-teams" id="sbAlt" style="color:var(--accent,#f5a623);"></div>
     </div>
 
     <div class="mic-row">
       <button class="mic-btn" id="micBtn">Start Listening</button>
+      <button class="btn-secondary" id="restartBtn" style="margin-left:8px;">Restart mic</button>
     </div>
     <div class="status-line" id="micStatus"></div>
     <div class="transcript-box" id="transcriptBox">mic transcript will appear here…</div>
+
+    <details id="diagBox">
+      <summary>Diagnostics — what the phone is hearing</summary>
+      <div class="status-line" id="diagStatus">Not listening yet.</div>
+      <pre class="diag-log" id="diagLog"></pre>
+      <button class="btn-secondary" id="diagCopy" style="margin-top:8px; width:100%;">Copy log</button>
+    </details>
 
     <div class="timer-row">
       <div class="timer-display" id="timerDisplay">0:30</div>
@@ -260,6 +276,7 @@
   let recognition = null;
   let timerInterval = null;
   let timerRemaining = 30;
+  let timerStartedMic = false;
 
   const $ = (id)=>document.getElementById(id);
   const sportStatus = $('sportStatus');
@@ -271,6 +288,8 @@
   const sbNumber = $('sbNumber');
   const sbName = $('sbName');
   const sbTeams = $('sbTeams');
+  const sbAlt = $('sbAlt');
+  const restartBtn = $('restartBtn');
   const micBtn = $('micBtn');
   const micStatus = $('micStatus');
   const transcriptBox = $('transcriptBox');
@@ -457,12 +476,13 @@
   });
 
   // ---------- Matching + display ----------
-  function showMatch(player){
+  function showMatch(player, alts){
     const nums = uniqueNumbers(player.entries);
     sbNumber.textContent = nums.join(' / ');
     sbNumber.classList.toggle('multi', nums.join(' / ').length > 4);
     sbName.textContent = player.name;
     sbTeams.textContent = formatNumbers(player.entries).join('  ·  ');
+    sbAlt.textContent = (alts && alts.length) ? 'Could also be: ' + alts.map(a=>a.name + ' #' + uniqueNumbers(a.entries).join('/')).join('  ·  ') : '';
     lastMatchId = player.id;
     lastMatchTime = Date.now();
     foundIds.add(player.id);
@@ -494,40 +514,163 @@
     if (recognizing) stopListening(); else startListening();
   });
 
-  function startListening(){
-    resetConsumed();
-    recognition = new SpeechRec();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+  // ---------- Diagnostics ----------
+  // Shows what the recognizer is actually hearing, so a failed test says WHERE it failed:
+  //   no audio/sound events  -> the mic isn't picking the audio up (routing, echo cancellation, distance)
+  //   sound but no speech    -> audio reaches the mic but isn't recognised as speech (too quiet/noisy)
+  //   FINAL text but no MATCH-> speech recognised, but the name/number logic rejected it (see reason lines)
+  const diagLogEl = $('diagLog');
+  const diagStatusEl = $('diagStatus');
+  const diagCopyBtn = $('diagCopy');
+  const diag = {
+    lines: [], t0: Date.now(), restarts: 0, results: 0,
+    lastAudio: 0, lastSound: 0, lastSpeech: 0, lastText: 0,
+    lastInterimLog: 0, lastRejectKey: '', timer: null, lastEvent: 0
+  };
 
-    recognition.onresult = (event)=>{
-      const lastResult = event.results[event.results.length - 1];
+  function dlog(msg){
+    const t = ((Date.now() - diag.t0) / 1000).toFixed(1).padStart(6, ' ');
+    diag.lines.push(t + 's  ' + msg);
+    if (diag.lines.length > 120) diag.lines.shift();
+    diagLogEl.textContent = diag.lines.join('\n');
+    diagLogEl.scrollTop = diagLogEl.scrollHeight;
+  }
+  function logMatch(msg){ diag.lastRejectKey = ''; dlog('MATCH ' + msg); }
+  function logReject(msg){          // dedupe so repeated interim updates don't flood the log
+    if (msg === diag.lastRejectKey) return;
+    diag.lastRejectKey = msg;
+    dlog('no match: ' + msg);
+  }
+  function ago(ts){ return ts ? ((Date.now() - ts) / 1000).toFixed(1) + 's ago' : 'never'; }
+  function renderDiagStatus(){
+    diagStatusEl.textContent =
+      'restarts: ' + diag.restarts + ' · results: ' + diag.results +
+      ' · audio: ' + ago(diag.lastAudio) + ' · sound: ' + ago(diag.lastSound) +
+      ' · speech: ' + ago(diag.lastSpeech) + ' · text: ' + ago(diag.lastText);
+  }
+  diagCopyBtn.addEventListener('click', async ()=>{
+    try { await navigator.clipboard.writeText(diag.lines.join('\n')); diagCopyBtn.textContent = 'Copied'; }
+    catch(e){ diagCopyBtn.textContent = 'Copy failed — select the log text by hand'; }
+    setTimeout(()=>{ diagCopyBtn.textContent = 'Copy log'; }, 2000);
+  });
+
+  // ---------- Recognizer lifecycle ----------
+  // iOS speech recognition silently stalls after a while. Defences:
+  //  * every restart creates a FRESH recognizer object (re-using an ended one is flaky on iOS)
+  //  * proactive rotation every ROTATE_MS while nothing is being said
+  //  * watchdog: no event of any kind for STALL_MS -> rotate
+  //  * manual "Restart mic" button
+  const ROTATE_MS = 40000;
+  const STALL_MS = 20000;
+  let recStart = 0;
+  let lastError = '';
+
+  function launchRecognizer(reason, delay){
+    const old = recognition;
+    if (old){
+      old.onend = old.onresult = old.onerror = null;
+      try { old.abort(); } catch(e){}
+    }
+    resetConsumed();
+    const rec = new SpeechRec();
+    recognition = rec;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    const mine = ()=> rec === recognition;
+
+    rec.onstart = ()=>{ diag.lastEvent = Date.now(); dlog('recognizer started (' + reason + ')'); };
+    rec.onaudiostart = ()=>{ diag.lastAudio = diag.lastEvent = Date.now(); dlog('audio capture started'); };
+    rec.onsoundstart = ()=>{ diag.lastSound = diag.lastEvent = Date.now(); dlog('sound detected'); };
+    rec.onspeechstart = ()=>{ diag.lastSpeech = diag.lastEvent = Date.now(); dlog('speech detected'); };
+    rec.onspeechend = ()=> dlog('speech ended');
+    rec.onsoundend = ()=> dlog('sound ended');
+    rec.onnomatch = ()=> dlog('recognizer returned no match');
+
+    rec.onresult = (event)=>{
+      if (!mine()) return;
+      const idx = event.results.length - 1;
+      const lastResult = event.results[idx];
       const transcript = lastResult[0].transcript;
       transcriptBox.textContent = transcript;
-      processTranscript(transcript, event.results.length - 1);
+      diag.results++; diag.lastText = diag.lastEvent = Date.now();
+      if (lastResult.isFinal || Date.now() - diag.lastInterimLog > 700){
+        diag.lastInterimLog = Date.now();
+        const conf = lastResult[0].confidence;
+        dlog((lastResult.isFinal ? 'FINAL   ' : 'interim ') + '#' + idx +
+             (conf ? ' (' + conf.toFixed(2) + ')' : '') + ': "' + transcript + '"');
+      }
+      processTranscript(transcript, idx);
     };
 
-    recognition.onerror = (event)=>{
-      micStatus.className = 'status-line error';
-      micStatus.textContent = 'Mic error: ' + event.error + '. Tap Start Listening to retry.';
-    };
-
-    recognition.onend = ()=>{
-      if (recognizing){
-        resetConsumed(); // a restarted session numbers its results from 0 again
-        try { recognition.start(); } catch(e){}
+    rec.onerror = (event)=>{
+      if (!mine()) return;
+      lastError = event.error;
+      dlog('ERROR ' + event.error + (event.message ? ' — ' + event.message : ''));
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+        micStatus.className = 'status-line error';
+        micStatus.textContent = 'Mic permission denied. Allow microphone + speech recognition, then tap Start Listening.';
+        recognizing = false;
+        micBtn.textContent = 'Start Listening';
+        micBtn.classList.remove('listening');
+        clearInterval(diag.timer);
       }
     };
 
+    rec.onend = ()=>{
+      if (!mine()) return;
+      dlog('recognizer ended' + (recognizing ? ' — restarting' : ''));
+      if (recognizing){
+        diag.restarts++;
+        const slow = (lastError === 'network' || lastError === 'audio-capture');
+        lastError = '';
+        launchRecognizer('auto-restart', slow ? 1500 : 150);
+      }
+    };
+
+    recStart = Date.now();
+    diag.lastEvent = recStart;
+    const go = ()=>{
+      if (!mine() || !recognizing) return;
+      try { rec.start(); }
+      catch(e){ dlog('start failed: ' + e.message); setTimeout(()=>{ if (mine() && recognizing) launchRecognizer('retry', 500); }, 500); }
+    };
+    if (delay) setTimeout(go, delay); else go();
+  }
+
+  function rotateRecognizer(reason){
+    dlog('rotating recognizer — ' + reason);
+    diag.restarts++;
+    launchRecognizer(reason, 200);
+  }
+
+  function watchdogTick(){
+    renderDiagStatus();
+    if (!recognizing) return;
+    const now = Date.now();
+    if (now - recStart > ROTATE_MS && now - diag.lastText > 1500) rotateRecognizer('proactive refresh');
+    else if (now - diag.lastEvent > STALL_MS && now - recStart > STALL_MS) rotateRecognizer('no events for ' + Math.round((now - diag.lastEvent)/1000) + 's');
+    micStatus.className = 'status-line good';
+    micStatus.textContent = 'Listening… last text ' + ago(diag.lastText);
+  }
+
+  function startListening(){
+    diag.lines = []; diag.t0 = Date.now(); diag.restarts = 0; diag.results = 0;
+    diag.lastAudio = diag.lastSound = diag.lastSpeech = diag.lastText = diag.lastEvent = 0; diag.lastRejectKey = '';
+    dlog('start — ' + (activeSport ? activeSport.toUpperCase() : 'manual list') + ', ' + roster.length + ' players loaded');
+    recognizing = true;
     try{
-      recognition.start();
-      recognizing = true;
+      launchRecognizer('user start', 0);
       micBtn.textContent = 'Stop Listening';
       micBtn.classList.add('listening');
       micStatus.className = 'status-line good';
       micStatus.textContent = 'Listening…';
+      clearInterval(diag.timer);
+      diag.timer = setInterval(watchdogTick, 700);
+      renderDiagStatus();
     }catch(err){
+      recognizing = false;
+      dlog('could not start: ' + err.message);
       micStatus.className = 'status-line error';
       micStatus.textContent = 'Could not start mic: ' + err.message;
     }
@@ -535,146 +678,224 @@
 
   function stopListening(){
     recognizing = false;
+    clearInterval(diag.timer);
     if (recognition){
-      recognition.onend = null;
-      recognition.stop();
+      recognition.onend = recognition.onresult = recognition.onerror = null;
+      try { recognition.abort(); } catch(e){}
     }
+    dlog('stopped');
+    renderDiagStatus();
     micBtn.textContent = 'Start Listening';
     micBtn.classList.remove('listening');
+    micStatus.className = 'status-line';
     micStatus.textContent = 'Stopped.';
   }
 
-  const COOLDOWN_MS = 2200;
-  const WINDOW_SIZE = 6;
+  restartBtn.addEventListener('click', ()=>{
+    if (!SpeechRec) return;
+    if (!recognizing){ startListening(); return; }
+    rotateRecognizer('manual restart');
+  });
 
-  // Precompute match tokens once per player (datasets can be 20k+ names).
-  // Name suffixes (Jr, Sr, II, III, IV) are dropped so "Ken Griffey Jr" matches on "griffey".
+  // ---------- Matching ----------
+  // The host always says "<Player name>, <Team>". The team nickname is the most reliable word
+  // in that phrase, so we use it as an ANCHOR: when a team nickname is heard, we look at the few
+  // words just before it and match them only against players who have played for that team.
+  // Random conversation can't trigger a match unless it also contains a team nickname AND a
+  // name that sounds like one of that team's players.
+  const COOLDOWN_MS = 2200;
+  const LOOK_BEFORE = 7;       // words before the team nickname that may contain the player name
+  const TEAM_ACCEPT = 0.64;    // name-vs-team-roster similarity needed to accept
+  const TEAM_WEAK = 0.60;      // accepted only if clearly ahead of the runner-up
+  const LEAGUE_ACCEPT = 0.86;  // stricter, used only if nothing on that team fits
   const SUFFIXES = new Set(['jr','sr','ii','iii','iv','v']);
+  const FILLER = new Set(['and','or','the','uh','um','correct','incorrect','pass','next','is','a','of']);
+
+  // Rough "sounds-like" key: unify similar consonants, drop vowels, collapse repeats.
+  function skel(s){
+    s = s.replace(/ph/g,'f').replace(/ck/g,'k').replace(/sh|ch|tch|j/g,'s')
+         .replace(/c(?=[eiy])/g,'s').replace(/[cq]/g,'k').replace(/x/g,'ks');
+    let out = '', prev = '';
+    for (const ch of s){
+      let c = ch;
+      if ('aeiouyhw'.includes(c)) { prev = ''; continue; }
+      if ('bp'.includes(c)) c = 'p'; else if ('dt'.includes(c)) c = 't';
+      else if ('gk'.includes(c)) c = 'k'; else if ('sz'.includes(c)) c = 's';
+      else if ('mn'.includes(c)) c = 'n'; else if ('vf'.includes(c)) c = 'f';
+      if (c !== prev) out += c;
+      prev = c;
+    }
+    return out;
+  }
+  // Blend of spelling similarity and sound-alike similarity (so "Jameer Gibbs" ~ "Jahmyr Gibbs").
+  function soundSim(a, b, skelB){
+    const sa = skel(a);
+    const spell = similarity(a, b);
+    const snd = (sa || skelB) ? similarity(sa, skelB) : 0;
+    return 0.5 * spell + 0.5 * snd;
+  }
+
   function prepPlayer(p){
     const toks = normalize(p.name).split(' ').filter(Boolean);
     while (toks.length > 1 && SUFFIXES.has(toks[toks.length - 1])) toks.pop();
     p.last = toks.length ? toks[toks.length - 1] : '';
     p.first = toks.length ? toks[0] : '';
+    p.full = toks.join('');
+    p.fullSkel = skel(p.full);
+    p.lastSkel = skel(p.last);
     return p;
   }
 
-  // Exact last-name index: instant lookup for the common case (name heard correctly).
+  // Indexes: exact surname -> players; team nickname -> players; plus city words to ignore.
   let lastIndex = new Map();
+  let teamIndex = new Map();
+  let teamKeys = [];
+  function teamNick(team){
+    const w = normalize(team).split(' ').filter(Boolean);
+    return w.length ? w[w.length - 1] : '';
+  }
   function indexRoster(){
     lastIndex = new Map();
+    teamIndex = new Map();
     for (const p of roster){
-      if (!p.last) continue;
-      let a = lastIndex.get(p.last);
-      if (!a){ a = []; lastIndex.set(p.last, a); }
-      a.push(p);
+      if (p.last){
+        let a = lastIndex.get(p.last);
+        if (!a){ a = []; lastIndex.set(p.last, a); }
+        a.push(p);
+      }
+      const seen = new Set();
+      for (const e of (p.entries || [])){
+        const n = teamNick(e.team);
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        let a = teamIndex.get(n);
+        if (!a){ a = []; teamIndex.set(n, a); }
+        a.push(p);
+      }
     }
+    teamKeys = [...teamIndex.keys()];
   }
 
-  // Best similarity of `word` against tokens, plus where in the window it matched
-  // (later/more recent position wins ties).
-  function bestTokenMatch(word, tokens){
-    let best = 0, idx = -1;
-    for (let i = 0; i < tokens.length; i++){
-      const s = similarity(word, tokens[i]);
-      if (s >= best){ best = s; idx = i; }
+  // Which team nickname(s) does this heard word mean? ("panthers", "panther", "pantheres")
+  function teamsForWord(w){
+    if (w.length < 3) return [];
+    if (teamIndex.has(w)) return [w];
+    if (teamIndex.has(w + 's')) return [w + 's'];
+    if (w.length < 6) return [];
+    const out = [];
+    for (const k of teamKeys){
+      if (k.length >= 5 && Math.abs(k.length - w.length) <= 2 && similarity(w, k) >= 0.82) out.push(k);
     }
-    return [best, idx];
+    return out;
   }
 
-  // Returns [score, lastNameIndexInWindow]
-  function scorePlayer(p, win){
-    const [lastSim, lastIdx] = bestTokenMatch(p.last, win);
-    if (lastSim < 0.72) return [0, -1];
-    const [firstSim] = bestTokenMatch(p.first, win);
-    const recency = win.length > 1 ? lastIdx / (win.length - 1) : 1;
-    return [lastSim * 0.7 + firstSim * 0.3 + recency * 0.03, lastIdx];
+  // Best score for player p against any span of the heard words (spans of 1-4 words).
+  function scoreAgainst(p, words, allowSurname){
+    let best = 0, bestSpan = null;
+    const n = words.length;
+    for (let s = 0; s < n; s++){
+      let joined = '';
+      for (let e = s; e < Math.min(n, s + 4); e++){
+        joined += words[e];
+        const len = joined.length;
+        if (Math.abs(len - p.full.length) <= 5){
+          let sc = soundSim(joined, p.full, p.fullSkel);
+          // prefer spans that end close to the team word (later end = small bonus) and fuller names
+          sc += 0.01 * ((e + 1) / n);
+          if (sc > best){ best = sc; bestSpan = [s, e]; }
+        }
+        if (allowSurname && e === s && len >= 5 && Math.abs(len - p.last.length) <= 3){
+          // surname alone, heard clearly (host sometimes drops the first name): discounted
+          const sc = 0.85 * soundSim(joined, p.last, p.lastSkel) + 0.01 * ((e + 1) / n);
+          if (sc > best){ best = sc; bestSpan = [s, e]; }
+        }
+      }
+    }
+    return [best, bestSpan];
   }
 
-  // Only words heard since the last match are scored (plus a short look-back so a
-  // first name just before the cut-off still counts), so the previous player's
-  // name can't keep re-triggering while the host moves on.
-  const LOOKBACK = 2;
-  const CONFIDENT = 0.9;   // exact surname + first name also heard -> accept immediately
-  const ACCEPT = 0.68;     // lower-confidence fuzzy accept (needs first AND last name heard)
-  let currentResultIdx = -1;
-  let consumedWords = 0;
-  function resetConsumed(){ currentResultIdx = -1; consumedWords = 0; }
-
-  const FUZZY_MIN_MS = 250;
-  let lastFuzzyTime = 0;
-  let fuzzyTimer = null;
-  let pendingArgs = null;
-
-  function pickBest(pool, win, fuzzy, blockId){
-    const winLens = fuzzy ? win.map(w=>w.length) : null;
-    let best = null, bestScore = 0, bestIdx = -1;
+  function topCandidates(pool, words, blockId, allowSurname){
+    const top = [];
     for (const p of pool){
       if (!p.last || p.id === blockId) continue;
-      if (fuzzy){
-        // Cheap prefilter: skip unless some heard word is close in length to the last name
-        let lenOk = false;
-        for (const l of winLens){
-          if (Math.abs(l - p.last.length) <= 3){ lenOk = true; break; }
-        }
-        if (!lenOk) continue;
-      }
-      const [score, idx] = scorePlayer(p, win);
-      if (score > bestScore){ bestScore = score; best = p; bestIdx = idx; }
+      const [sc, span] = scoreAgainst(p, words, allowSurname);
+      if (sc < 0.55) continue;
+      top.push({p, sc, span});
     }
-    return [best, bestScore, bestIdx];
+    top.sort((a,b)=> b.sc - a.sc);
+    return top.slice(0, 3);
   }
+
+  // Words consumed so far in the current recognizer result, so a finished name can't re-trigger.
+  let currentResultIdx = -1;
+  let consumedWords = 0;
+  let tried = new Set();
+  function resetConsumed(){ currentResultIdx = -1; consumedWords = 0; tried = new Set(); }
 
   function processTranscript(transcript, resultIdx){
     if (roster.length === 0) return;
     const words = normalize(transcript).split(' ').filter(Boolean);
     if (words.length === 0) return;
-
-    if (resultIdx !== currentResultIdx){ currentResultIdx = resultIdx; consumedWords = 0; }
+    if (resultIdx !== currentResultIdx){ currentResultIdx = resultIdx; consumedWords = 0; tried = new Set(); }
     if (consumedWords > words.length) consumedWords = words.length;
-    if (consumedWords >= words.length) return;           // nothing new since last match
-    const startIdx = Math.max(consumedWords - LOOKBACK, words.length - WINDOW_SIZE, 0);
-    const win = words.slice(startIdx);
+    if (consumedWords >= words.length) return;
 
     const now = Date.now();
-    // The player we just showed can't be re-picked while the host is still moving on
     const blockId = (now - lastMatchTime) <= COOLDOWN_MS ? lastMatchId : null;
 
-    // Tier 1: exact last-name hits (instant). Accept only a confident full-name match,
-    // so "Jordan" (a first name) can't hijack "Jordan Staal" via Michael Jordan.
-    let pool = [];
-    for (const w of win){
-      const a = lastIndex.get(w);
-      if (a) pool = pool.concat(a);
-    }
-    if (pool.length){
-      const [b, s, idx] = pickBest(pool, win, false, blockId);
-      if (b && s >= CONFIDENT){
-        showMatch(b);
-        consumedWords = startIdx + idx + 1;
-        return;
-      }
-    }
+    // --- Path A: team nickname heard -> match the words just before it to that team's players.
+    for (let t = consumedWords; t < words.length; t++){
+      const keys = teamsForWord(words[t]);
+      if (!keys.length) continue;
+      const from = Math.max(consumedWords, t - LOOK_BEFORE, 0);
+      const win = words.slice(from, t).filter((w,i,arr)=> !(FILLER.has(w)));
+      if (!win.length){ consumedWords = t + 1; continue; }
+      const key = t + '|' + win.join(' ');
+      if (tried.has(key)) continue;
+      tried.add(key);
 
-    // Tier 2: fuzzy scan of the whole roster (throttled). Handles mishearings (Stall/Staal)
-    // and lower-confidence matches, which must have at least two words heard (first + last).
-    if (win.length < 2) return;
-    const wait = FUZZY_MIN_MS - (now - lastFuzzyTime);
-    if (wait > 0){
-      pendingArgs = [transcript, resultIdx];
-      if (!fuzzyTimer){
-        fuzzyTimer = setTimeout(()=>{
-          fuzzyTimer = null;
-          const a = pendingArgs; pendingArgs = null;
-          if (a) processTranscript(a[0], a[1]);
-        }, wait);
+      let pool = [];
+      for (const k of keys) pool = pool.concat(teamIndex.get(k));
+      let cands = topCandidates(pool, win, blockId, true);
+      let via = 'team ' + keys[0];
+      const strong = cands.length && (cands[0].sc >= TEAM_ACCEPT ||
+        (cands[0].sc >= TEAM_WEAK && (cands.length < 2 || cands[0].sc - cands[1].sc >= 0.05)));
+      if (!strong){
+        const wide = topCandidates(roster, win, blockId, false);
+        if (wide.length && wide[0].sc >= LEAGUE_ACCEPT){ cands = wide; via = 'league-wide (team ' + keys[0] + ' had no fit)'; }
+        else {
+          logReject('heard team "' + keys[0] + '" but words "' + win.join(' ') + '" don\'t fit its players' +
+                    (cands.length ? ' (closest ' + cands[0].p.name + ' ' + cands[0].sc.toFixed(2) + ')' : ''));
+          continue;
+        }
       }
+      const b = cands[0];
+      logMatch(via + ' — ' + b.p.name + ' (' + b.sc.toFixed(2) + ') from "' + win.join(' ') + '"');
+      const alts = cands.slice(1).filter(c => b.sc - c.sc < 0.15 && uniqueNumbers(c.p.entries).join() !== uniqueNumbers(b.p.entries).join()).map(c=>c.p);
+      showMatch(b.p, alts);
+      consumedWords = t + 1;
       return;
     }
-    lastFuzzyTime = now;
-    const [b, s, idx] = pickBest(roster, win, true, blockId);
-    if (b && s >= ACCEPT){
-      showMatch(b);
-      consumedWords = startIdx + idx + 1;
+
+    // --- Path B: no team heard (yet). Only accept a clearly pronounced FULL name
+    // (first and last both heard, in order). Instant, so the answer shows before the team is read.
+    const startIdx = Math.max(consumedWords, words.length - 8, 0);
+    for (let i = startIdx; i < words.length; i++){
+      const a = lastIndex.get(words[i]);
+      if (!a) continue;
+      for (const p of a){
+        if (p.id === blockId) continue;
+        let ok = false;
+        for (let k = Math.max(startIdx, i - 2); k < i; k++){
+          if (words[k] === p.first || (p.first.length >= 4 && similarity(words[k], p.first) >= 0.85)) ok = true;
+        }
+        if (ok){
+          logMatch('full name — ' + p.name);
+          showMatch(p, []);
+          consumedWords = i + 1;
+          return;
+        }
+      }
     }
   }
 
@@ -690,6 +911,12 @@
     if (timerInterval) return;
     timerRemaining = 30;
     updateTimerDisplay();
+    // Fresh recognizer for the round (avoids a stalled session); if the mic was off, turn it on and
+    // switch it off again shortly after the round ends.
+    if (SpeechRec){
+      if (recognizing){ timerStartedMic = false; rotateRecognizer('round start'); }
+      else { timerStartedMic = true; startListening(); }
+    }
     timerInterval = setInterval(()=>{
       timerRemaining--;
       updateTimerDisplay();
@@ -697,6 +924,7 @@
         clearInterval(timerInterval);
         timerInterval = null;
         if (navigator.vibrate) navigator.vibrate([100,50,100]);
+        if (timerStartedMic) setTimeout(()=>{ if (timerStartedMic && recognizing) stopListening(); timerStartedMic = false; }, 2000);
       }
     }, 1000);
   });
@@ -713,6 +941,7 @@
     sbNumber.classList.remove('multi');
     sbName.textContent = 'Waiting for a name...';
     sbTeams.textContent = '';
+    sbAlt.textContent = '';
     renderFoundGrid();
   });
 
