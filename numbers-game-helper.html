@@ -276,7 +276,6 @@
   let recognition = null;
   let timerInterval = null;
   let timerRemaining = 30;
-  let timerStartedMic = false;
 
   const $ = (id)=>document.getElementById(id);
   const sportStatus = $('sportStatus');
@@ -557,11 +556,9 @@
   // ---------- Recognizer lifecycle ----------
   // iOS speech recognition silently stalls after a while. Defences:
   //  * every restart creates a FRESH recognizer object (re-using an ended one is flaky on iOS)
-  //  * proactive rotation every ROTATE_MS while nothing is being said
   //  * watchdog: no event of any kind for STALL_MS -> rotate
   //  * manual "Restart mic" button
-  const ROTATE_MS = 40000;
-  const STALL_MS = 20000;
+  const STALL_MS = 25000;
   let recStart = 0;
   let lastError = '';
 
@@ -624,7 +621,13 @@
         diag.restarts++;
         const slow = (lastError === 'network' || lastError === 'audio-capture');
         lastError = '';
-        launchRecognizer('auto-restart', slow ? 1500 : 150);
+        // Re-start the SAME recognizer object: it keeps the existing mic/Bluetooth audio session
+        // instead of tearing it down (which can make a car stereo drop its audio).
+        setTimeout(()=>{
+          if (!mine() || !recognizing) return;
+          try { rec.start(); recStart = Date.now(); }
+          catch(e){ dlog('restart failed (' + e.message + ') — new recognizer'); launchRecognizer('restart fallback', 300); }
+        }, slow ? 1500 : 150);
       }
     };
 
@@ -638,18 +641,29 @@
     if (delay) setTimeout(go, delay); else go();
   }
 
-  function rotateRecognizer(reason){
-    dlog('rotating recognizer — ' + reason);
-    diag.restarts++;
-    launchRecognizer(reason, 200);
+  // Gentle recovery first (abort -> auto-restart of the same recognizer); if that produces no
+  // event within ~1.5 s, build a fresh recognizer. Only used on a real stall or the manual button.
+  let softRotations = 0;
+  function rotateRecognizer(reason, forceFresh){
+    dlog('recovering recognizer — ' + reason);
+    const rec = recognition, mark = Date.now();
+    if (!forceFresh && rec && (softRotations++ % 2 === 0)){
+      try { rec.abort(); } catch(e){}
+      setTimeout(()=>{ if (recognizing && rec === recognition && diag.lastEvent < mark) launchRecognizer('soft recovery failed', 0); }, 1500);
+    } else {
+      diag.restarts++;
+      launchRecognizer(reason, 250);
+    }
   }
 
   function watchdogTick(){
     renderDiagStatus();
     if (!recognizing) return;
     const now = Date.now();
-    if (now - recStart > ROTATE_MS && now - diag.lastText > 1500) rotateRecognizer('proactive refresh');
-    else if (now - diag.lastEvent > STALL_MS && now - recStart > STALL_MS) rotateRecognizer('no events for ' + Math.round((now - diag.lastEvent)/1000) + 's');
+    if (now - diag.lastEvent > STALL_MS && now - recStart > STALL_MS){
+      diag.lastEvent = now;     // don't re-trigger every tick
+      rotateRecognizer('no events for ' + Math.round(STALL_MS/1000) + 's');
+    }
     micStatus.className = 'status-line good';
     micStatus.textContent = 'Listening… last text ' + ago(diag.lastText);
   }
@@ -694,7 +708,7 @@
   restartBtn.addEventListener('click', ()=>{
     if (!SpeechRec) return;
     if (!recognizing){ startListening(); return; }
-    rotateRecognizer('manual restart');
+    rotateRecognizer('manual restart', true);
   });
 
   // ---------- Matching ----------
@@ -911,12 +925,6 @@
     if (timerInterval) return;
     timerRemaining = 30;
     updateTimerDisplay();
-    // Fresh recognizer for the round (avoids a stalled session); if the mic was off, turn it on and
-    // switch it off again shortly after the round ends.
-    if (SpeechRec){
-      if (recognizing){ timerStartedMic = false; rotateRecognizer('round start'); }
-      else { timerStartedMic = true; startListening(); }
-    }
     timerInterval = setInterval(()=>{
       timerRemaining--;
       updateTimerDisplay();
@@ -924,7 +932,6 @@
         clearInterval(timerInterval);
         timerInterval = null;
         if (navigator.vibrate) navigator.vibrate([100,50,100]);
-        if (timerStartedMic) setTimeout(()=>{ if (timerStartedMic && recognizing) stopListening(); timerStartedMic = false; }, 2000);
       }
     }, 1000);
   });
