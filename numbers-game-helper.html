@@ -562,6 +562,42 @@
   let recStart = 0;
   let lastError = '';
 
+  // Desktop Chrome: open the mic ourselves with the browser's voice processing OFF
+  // (echo cancellation / noise suppression treat a phone speaker across the desk as noise and
+  // remove it) and hand that track to the recognizer (Chrome 139+; older versions ignore it).
+  // Skipped on iPhone/iPad, where opening a second audio session disturbs Bluetooth/car audio.
+  const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent || '') ;
+  let micTrack = null, micStream = null, micCtx = null, micAnalyser = null, micBuf = null, micPeak = 0;
+  async function openRawMic(){
+    if (IS_IOS || micTrack || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
+      micTrack = micStream.getAudioTracks()[0];
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC){
+        micCtx = new AC();
+        micAnalyser = micCtx.createAnalyser();
+        micAnalyser.fftSize = 1024;
+        micCtx.createMediaStreamSource(micStream).connect(micAnalyser);
+        micBuf = new Uint8Array(micAnalyser.fftSize);
+      }
+      dlog('raw mic opened (echo cancel/noise suppression off): ' + (micTrack.label || 'default'));
+    } catch(e){ dlog('raw mic unavailable (' + e.name + ') — using default recognizer mic'); }
+  }
+  function closeRawMic(){
+    try { if (micStream) micStream.getTracks().forEach(t=>t.stop()); } catch(e){}
+    try { if (micCtx) micCtx.close(); } catch(e){}
+    micTrack = micStream = micCtx = micAnalyser = micBuf = null; micPeak = 0;
+  }
+  function micLevel(){   // 0-100, peak over the last tick
+    if (!micAnalyser) return null;
+    micAnalyser.getByteTimeDomainData(micBuf);
+    let m = 0;
+    for (let i = 0; i < micBuf.length; i++){ const v = Math.abs(micBuf[i] - 128); if (v > m) m = v; }
+    return Math.round(m / 128 * 100);
+  }
+
   function launchRecognizer(reason, delay){
     const old = recognition;
     if (old){
@@ -635,7 +671,7 @@
     diag.lastEvent = recStart;
     const go = ()=>{
       if (!mine() || !recognizing) return;
-      try { rec.start(); }
+      try { if (micTrack) rec.start(micTrack); else rec.start(); }
       catch(e){ dlog('start failed: ' + e.message); setTimeout(()=>{ if (mine() && recognizing) launchRecognizer('retry', 500); }, 500); }
     };
     if (delay) setTimeout(go, delay); else go();
@@ -665,15 +701,18 @@
       rotateRecognizer('no events for ' + Math.round(STALL_MS/1000) + 's');
     }
     micStatus.className = 'status-line good';
-    micStatus.textContent = 'Listening… last text ' + ago(diag.lastText);
+    const lv = micLevel();
+    micStatus.textContent = 'Listening… last text ' + ago(diag.lastText) + (lv === null ? '' : ' · mic level ' + lv + '%');
   }
 
-  function startListening(){
+  async function startListening(){
     diag.lines = []; diag.t0 = Date.now(); diag.restarts = 0; diag.results = 0;
     diag.lastAudio = diag.lastSound = diag.lastSpeech = diag.lastText = diag.lastEvent = 0; diag.lastRejectKey = '';
     dlog('start — ' + (activeSport ? activeSport.toUpperCase() : 'manual list') + ', ' + roster.length + ' players loaded');
     recognizing = true;
     try{
+      await openRawMic();
+      if (!recognizing) return;
       launchRecognizer('user start', 0);
       micBtn.textContent = 'Stop Listening';
       micBtn.classList.add('listening');
@@ -697,6 +736,7 @@
       recognition.onend = recognition.onresult = recognition.onerror = null;
       try { recognition.abort(); } catch(e){}
     }
+    closeRawMic();
     dlog('stopped');
     renderDiagStatus();
     micBtn.textContent = 'Start Listening';
@@ -764,6 +804,7 @@
   let lastIndex = new Map();
   let teamIndex = new Map();
   let teamKeys = [];
+  let skelIndex = new Map();
   function teamNick(team){
     const w = normalize(team).split(' ').filter(Boolean);
     return w.length ? w[w.length - 1] : '';
@@ -771,7 +812,13 @@
   function indexRoster(){
     lastIndex = new Map();
     teamIndex = new Map();
+    skelIndex = new Map();
     for (const p of roster){
+      if (p.lastSkel && p.last.length >= 3){
+        let s = skelIndex.get(p.lastSkel);
+        if (!s){ s = []; skelIndex.set(p.lastSkel, s); }
+        s.push(p);
+      }
       if (p.last){
         let a = lastIndex.get(p.last);
         if (!a){ a = []; lastIndex.set(p.last, a); }
@@ -879,82 +926,4 @@
         if (wide.length && wide[0].sc >= LEAGUE_ACCEPT){ cands = wide; via = 'league-wide (team ' + keys[0] + ' had no fit)'; }
         else {
           logReject('heard team "' + keys[0] + '" but words "' + win.join(' ') + '" don\'t fit its players' +
-                    (cands.length ? ' (closest ' + cands[0].p.name + ' ' + cands[0].sc.toFixed(2) + ')' : ''));
-          continue;
-        }
-      }
-      const b = cands[0];
-      logMatch(via + ' — ' + b.p.name + ' (' + b.sc.toFixed(2) + ') from "' + win.join(' ') + '"');
-      const alts = cands.slice(1).filter(c => b.sc - c.sc < 0.15 && uniqueNumbers(c.p.entries).join() !== uniqueNumbers(b.p.entries).join()).map(c=>c.p);
-      showMatch(b.p, alts);
-      consumedWords = t + 1;
-      return;
-    }
-
-    // --- Path B: no team heard (yet). Only accept a clearly pronounced FULL name
-    // (first and last both heard, in order). Instant, so the answer shows before the team is read.
-    const startIdx = Math.max(consumedWords, words.length - 8, 0);
-    for (let i = startIdx; i < words.length; i++){
-      const a = lastIndex.get(words[i]);
-      if (!a) continue;
-      for (const p of a){
-        if (p.id === blockId) continue;
-        let ok = false;
-        for (let k = Math.max(startIdx, i - 2); k < i; k++){
-          if (words[k] === p.first || (p.first.length >= 4 && similarity(words[k], p.first) >= 0.85)) ok = true;
-        }
-        if (ok){
-          logMatch('full name — ' + p.name);
-          showMatch(p, []);
-          consumedWords = i + 1;
-          return;
-        }
-      }
-    }
-  }
-
-  // ---------- Timer ----------
-  function updateTimerDisplay(){
-    const m = Math.floor(timerRemaining / 60);
-    const s = timerRemaining % 60;
-    timerDisplay.textContent = m + ':' + String(s).padStart(2,'0');
-    timerDisplay.classList.toggle('low', timerRemaining <= 10);
-  }
-
-  timerStartBtn.addEventListener('click', ()=>{
-    if (timerInterval) return;
-    timerRemaining = 30;
-    updateTimerDisplay();
-    timerInterval = setInterval(()=>{
-      timerRemaining--;
-      updateTimerDisplay();
-      if (timerRemaining <= 0){
-        clearInterval(timerInterval);
-        timerInterval = null;
-        if (navigator.vibrate) navigator.vibrate([100,50,100]);
-      }
-    }, 1000);
-  });
-
-  timerResetBtn.addEventListener('click', ()=>{
-    clearInterval(timerInterval);
-    timerInterval = null;
-    timerRemaining = 30;
-    updateTimerDisplay();
-    foundIds = new Set();
-    lastMatchId = null;
-    resetConsumed();
-    sbNumber.textContent = '—';
-    sbNumber.classList.remove('multi');
-    sbName.textContent = 'Waiting for a name...';
-    sbTeams.textContent = '';
-    sbAlt.textContent = '';
-    renderFoundGrid();
-  });
-
-  updateTimerDisplay();
-
-})();
-</script>
-</body>
-</html>
+                    (cands.length ? ' (closest ' + cands[0].p.name + ' ' + cands[0].sc.toFixed(2) + ')' : '
